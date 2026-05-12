@@ -24,3 +24,6 @@ memory/conversation_log/*.json
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Backups
+_backup_*/
