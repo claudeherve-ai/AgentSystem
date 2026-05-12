@@ -114,6 +114,7 @@ from tools.draft_replies import generate_draft_replies
 from tools.end_of_day import generate_eod_review
 from tools.notification import NotificationGateway, create_default_gateway
 from tools.audit import log_action
+from tools.mcp_tools import print_mcp_banner
 
 
 def setup_logging():
@@ -486,6 +487,7 @@ async def interactive_loop(orchestrator: Orchestrator):
     print(f"   Model:     {status['model_provider']}")
     print(f"   Session:   {status['active_session_id']}")
     print(f"   Memory:    {status['remembered_facts']} facts")
+    print_mcp_banner()
     print("=" * 60)
     print("Commands:")
     print("  status     — Show system status")

@@ -1040,6 +1040,72 @@ def is_github_mcp_active() -> bool:
     return _github_enabled() and _github_token() is not None
 
 
+# Display labels in a stable order. Keep in sync with mcp_status() keys below.
+_MCP_DISPLAY: list[tuple[str, str]] = [
+    ("docs",          "docs_enabled"),
+    ("deepwiki",      "deepwiki_enabled"),
+    ("context7",      "context7_enabled"),
+    ("huggingface",   "huggingface_enabled"),
+    ("github",        "github_enabled"),
+    ("notion",        "notion_enabled"),
+    ("sentry",        "sentry_enabled"),
+    ("atlassian",     "atlassian_enabled"),
+    ("filesystem",    "filesystem_enabled"),
+    ("seq-think",     "sequential_thinking_enabled"),
+    ("memory-graph",  "memory_graph_enabled"),
+    ("git",           "git_enabled"),
+    ("sqlite",        "sqlite_enabled"),
+    ("time",          "time_enabled"),
+    ("fetch",         "fetch_enabled"),
+]
+
+
+def format_mcp_banner() -> list[str]:
+    """Return banner lines summarizing MCP server status (active vs disabled).
+
+    Designed to slot into the AgentSystem startup status panel. Ensures the
+    operator can immediately see which MCP servers are live and which are
+    missing — catches token/config bugs in <2 seconds instead of via failed
+    agent calls.
+    """
+    status = mcp_status()
+    active: list[str] = []
+    disabled: list[str] = []
+    for label, key in _MCP_DISPLAY:
+        if bool(status.get(key)):
+            active.append(label)
+        else:
+            disabled.append(label)
+    total = len(_MCP_DISPLAY)
+
+    # Hint at the most common cause when a popular HTTP MCP is off
+    hints: list[str] = []
+    if not status.get("github_enabled") and not status.get("github_token_present"):
+        hints.append("github: set GITHUB_TOKEN in .env")
+    if not status.get("node_available") and any(
+        not status.get(k) for k in ("filesystem_enabled", "sequential_thinking_enabled", "memory_graph_enabled")
+    ):
+        hints.append("npx not found (Tier-3 stdio servers need Node.js)")
+    if not status.get("uvx_available") and any(
+        not status.get(k) for k in ("git_enabled", "sqlite_enabled", "time_enabled", "fetch_enabled")
+    ):
+        hints.append("uvx not found (some Tier-3 stdio servers need uv)")
+
+    lines = [
+        f"   MCP active:   {', '.join(active) if active else '(none)'}  ({len(active)}/{total})",
+        f"   MCP disabled: {', '.join(disabled) if disabled else '(none)'}  ({len(disabled)}/{total})",
+    ]
+    if hints:
+        lines.append(f"   MCP hints:    {' | '.join(hints)}")
+    return lines
+
+
+def print_mcp_banner() -> None:
+    """Print the MCP server status banner to stdout."""
+    for line in format_mcp_banner():
+        print(line)
+
+
 def mcp_status() -> dict[str, object]:
     """Status dict suitable for diagnostics / smoke tests."""
     return {
@@ -1135,4 +1201,6 @@ __all__ = [
     # Helpers
     "is_github_mcp_active",
     "mcp_status",
+    "format_mcp_banner",
+    "print_mcp_banner",
 ]
