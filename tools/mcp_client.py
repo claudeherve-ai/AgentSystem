@@ -31,7 +31,7 @@ from .audit import audit_log
 
 logger = logging.getLogger(__name__)
 
-_PROTOCOL_VERSION = "2024-11-05"
+_PROTOCOL_VERSION = "1.0.0"
 _DEFAULT_TIMEOUT = 30.0
 _USER_AGENT = "AgentSystem-MCP/1.0 (+https://github.com/microsoft/agent-framework)"
 
