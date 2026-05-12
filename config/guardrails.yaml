@@ -1,0 +1,143 @@
+# Guardrails Configuration
+# Safety rules, approval gates, and operational boundaries
+
+approval_gates:
+  # Actions that ALWAYS require human approval
+  always_approve:
+    - send_email
+    - create_event
+    - modify_event
+    - delete_event
+    - post_social_media
+    - send_invoice
+    - make_payment
+    - delete_anything
+
+  # Actions that can be auto-approved
+  auto_approve:
+    - read_inbox
+    - read_calendar
+    - draft_email        # Drafting is safe; sending is not
+    - draft_post
+    - log_expense
+    - generate_report
+    - search_contacts
+    - analyze_error
+    - research_issue
+    - debug_step_by_step
+    - compare_solutions
+    - create_investigation_report
+    - design_ml_pipeline
+    - generate_prompt_template
+    - evaluate_model_options
+    - design_recommendation_engine
+    - create_ai_integration_plan
+    - design_integration
+    - generate_api_mapping
+    - create_webhook_handler
+    - design_data_sync
+    - create_integration_checklist
+    - design_viral_loop
+    - create_ab_test
+    - analyze_funnel
+    - generate_growth_dashboard
+    - create_channel_strategy
+    - design_onboarding_flow
+    - analyze_compliance
+    - review_contract
+    - legal_research
+    - draft_legal_document    # Drafting is safe; sending/filing is not
+    - create_rfp_response
+    - generate_privacy_policy
+    - review_code
+    - generate_implementation
+    - optimize_performance
+    - design_css_system
+    - debug_frontend_issue
+    - design_system_architecture
+    - create_adr
+    - analyze_tradeoffs
+    - design_domain_model
+    - evaluate_tech_stack
+    - design_pipeline
+    - generate_schema
+    - create_data_quality_checks
+    - design_lakehouse
+    - optimize_query
+    - create_pipeline_monitoring
+    - create_design_system
+    - design_layout
+    - create_component_spec
+    - audit_accessibility
+    - create_developer_handoff
+    - create_prd
+    - prioritize_backlog
+    - create_roadmap
+    - write_user_story
+    - analyze_metrics
+    - create_go_to_market
+    - create_project_plan
+    - track_tasks
+    - assess_risks
+    - create_status_report
+    - manage_scope_change
+    - create_retrospective
+    - develop_win_themes
+    - write_executive_summary
+    - create_proposal_architecture
+    - analyze_rfp
+    - create_pricing_narrative
+    - qualify_deal_meddpicc
+    - assess_pipeline_risk
+    - create_competitive_battle_card
+    - build_deal_strategy
+    - design_discovery_questions
+    - forecast_deal
+    - design_optimization_strategy
+    - create_circuit_breaker
+    - analyze_api_costs
+    - design_shadow_test
+    - create_finops_dashboard
+    - design_cicd_pipeline
+    - create_infrastructure
+    - design_container_setup
+    - create_monitoring_stack
+    - design_disaster_recovery
+    - create_deployment_strategy
+
+content_safety:
+  # Never include these in LLM prompts or logs
+  redact_patterns:
+    - "\\b\\d{3}-\\d{2}-\\d{4}\\b"    # SSN
+    - "\\b\\d{16}\\b"                   # Credit card
+    - "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b"  # Email (in logs only)
+
+  # Maximum content length per outbound message
+  max_outbound_length: 5000
+
+rate_limits:
+  # Per-hour caps
+  emails_per_hour: 20
+  social_posts_per_hour: 5
+  llm_calls_per_hour: 200
+  graph_api_calls_per_hour: 500
+
+  # Per-day caps
+  emails_per_day: 100
+  social_posts_per_day: 10
+
+scope_boundaries:
+  # Each agent can ONLY call its own registered tools
+  # Cross-agent communication must go through the orchestrator
+  enforce_tool_isolation: true
+
+  # Agents cannot access filesystem outside these paths
+  allowed_paths:
+    - "C:\\Users\\claudedjale\\AgentSystem\\memory"
+    - "C:\\Users\\claudedjale\\AgentSystem\\config"
+
+audit:
+  # Log every agent action
+  enabled: true
+  log_path: "memory/audit.db"
+  retention_days: 90

@@ -1,0 +1,9 @@
+   [
+     { "key": "name", "value": "Claude Djale", "category": "identity" },
+     { "key": "birthday", "value": "08/31/1984", "category": "identity" },
+     { "key": "timezone", "value": "Pacific Time", "category": "identity" },
+     { "key": "briefing_format", "value": "short bullets with urgent items first", "category": "preference" },
+     { "key": "email_check_time", "value": "07:00", "category": "routine" },
+     { "key": "focus_hours", "value": "09:00-11:30", "category": "routine" },
+     { "key": "katy", "value": "Wife; priority family contact", "category": "contact" }
+   ]
