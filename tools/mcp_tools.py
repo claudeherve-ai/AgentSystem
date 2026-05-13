@@ -172,7 +172,8 @@ _GITHUB_URL = _env("MCP_GITHUB_URL", "https://api.githubcopilot.com/mcp/")
 
 
 def _github_token() -> Optional[str]:
-    return os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT")
+    raw = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT")
+    return raw.strip() if raw else None
 
 
 def _github_enabled() -> bool:
@@ -189,7 +190,6 @@ def _github_headers() -> Optional[dict[str, str]]:
         return None
     return {
         "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28",
     }
 
 

@@ -23,9 +23,9 @@ from .audit import audit_log
 
 logger = logging.getLogger(__name__)
 
-_PROTOCOL_VERSION = "1.0.0"
+_PROTOCOL_VERSION = "2024-11-05"
 _DEFAULT_TIMEOUT = 30.0
-_USER_AGENT = "AgentSystem-MCP/1.0"
+_USER_AGENT = "mcp-client/1.0"
 
 
 def _parse_mcp_response(resp: httpx.Response) -> dict[str, Any]:
@@ -123,12 +123,11 @@ async def call_mcp_tool(
         {"server_url": server_url, "args": arguments},
     )
 
-    # Added X-GitHub-Api-Version header for GitHub compatibility
+    # Removed X-GitHub-Api-Version to avoid conflicts with MCP protocolVersion
     base_headers: dict[str, str] = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
         "User-Agent": _USER_AGENT,
-        "X-GitHub-Api-Version": "2022-11-28"
     }
     if headers:
         base_headers.update(headers)
