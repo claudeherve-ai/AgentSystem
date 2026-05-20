@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json.schemastore.org/aspire-8.0.json",
+  "resources": {
+    "AzureOpenAIEndpoint": {
+      "type": "parameter.v0",
+      "value": "{AzureOpenAIEndpoint.inputs.value}",
+      "inputs": {
+        "value": {
+          "type": "string",
+          "secret": true
+        }
+      }
+    },
+    "AzureOpenAIApiKey": {
+      "type": "parameter.v0",
+      "value": "{AzureOpenAIApiKey.inputs.value}",
+      "inputs": {
+        "value": {
+          "type": "string",
+          "secret": true
+        }
+      }
+    },
+    "GraphClientId": {
+      "type": "parameter.v0",
+      "value": "{GraphClientId.inputs.value}",
+      "inputs": {
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "api": {
+      "type": "dockerfile.v0",
+      "path": "Dockerfile",
+      "context": ".",
+      "env": {
+        "AZURE_OPENAI_ENDPOINT": "{AzureOpenAIEndpoint.value}",
+        "AZURE_OPENAI_API_KEY": "{AzureOpenAIApiKey.value}",
+        "GRAPH_CLIENT_ID": "{GraphClientId.value}",
+        "PYTHONPATH": "../../",
+        "AGENTSYSTEM_MODE": "api",
+        "AGENTSYSTEM_AUTH_ENABLED": "true"
+      },
+      "bindings": {
+        "http": {
+          "scheme": "tcp",
+          "protocol": "tcp",
+          "transport": "tcp",
+          "port": 8080,
+          "targetPort": 8000,
+          "external": true
+        }
+      }
+    },
+    "dashboard": {
+      "type": "dockerfile.v0",
+      "path": "Dockerfile",
+      "context": ".",
+      "env": {
+        "services__api__http__0": "{api.bindings.http.url}",
+        "AZURE_OPENAI_ENDPOINT": "{AzureOpenAIEndpoint.value}",
+        "AZURE_OPENAI_API_KEY": "{AzureOpenAIApiKey.value}",
+        "GRAPH_CLIENT_ID": "{GraphClientId.value}",
+        "PYTHONPATH": "../../",
+        "AGENTSYSTEM_API_URL": "http://api:8080"
+      },
+      "bindings": {
+        "http": {
+          "scheme": "tcp",
+          "protocol": "tcp",
+          "transport": "tcp",
+          "port": 8501,
+          "targetPort": 8001,
+          "external": true
+        }
+      }
+    }
+  }
+}
