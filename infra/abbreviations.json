@@ -1,0 +1,9 @@
+{
+  "resourcesResourceGroups": "rg-",
+  "operationalInsightsWorkspaces": "log-",
+  "appManagedEnvironments": "cae-",
+  "containerRegistry": "cr-",
+  "keyVaults": "kv-",
+  "searchSearchServices": "srch-",
+  "cognitiveServicesAccounts": "cog-"
+}

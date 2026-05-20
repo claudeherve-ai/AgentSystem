@@ -1,0 +1,6 @@
+/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/obj/Debug/net8.0/AgentSystem.ServiceDefaults.csproj.AssemblyReference.cache
+/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/obj/Debug/net8.0/AgentSystem.ServiceDefaults.GeneratedMSBuildEditorConfig.editorconfig
+/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/obj/Debug/net8.0/AgentSystem.ServiceDefaults.AssemblyInfoInputs.cache
+/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/obj/Debug/net8.0/AgentSystem.ServiceDefaults.AssemblyInfo.cs
+/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/obj/Debug/net8.0/AgentSystem.ServiceDefaults.csproj.CoreCompileInputs.cache
+/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/obj/Debug/net8.0/AgentSystem.ServiceDefaults.sourcelink.json

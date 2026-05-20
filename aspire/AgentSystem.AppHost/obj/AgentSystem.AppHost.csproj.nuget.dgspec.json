@@ -1,0 +1,154 @@
+{
+  "format": 1,
+  "restore": {
+    "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.AppHost/AgentSystem.AppHost.csproj": {}
+  },
+  "projects": {
+    "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.AppHost/AgentSystem.AppHost.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.AppHost/AgentSystem.AppHost.csproj",
+        "projectName": "AgentSystem.AppHost",
+        "projectPath": "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.AppHost/AgentSystem.AppHost.csproj",
+        "packagesPath": "/home/tedch/.nuget/packages/",
+        "outputPath": "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.AppHost/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/home/tedch/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "targetAlias": "net8.0",
+            "projectReferences": {
+              "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/AgentSystem.ServiceDefaults.csproj": {
+                "projectPath": "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/AgentSystem.ServiceDefaults.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        }
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "dependencies": {
+            "Aspire.Hosting": {
+              "target": "Package",
+              "version": "[8.2.2, )"
+            },
+            "Aspire.Hosting.Python": {
+              "target": "Package",
+              "version": "[8.2.2, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/usr/lib/dotnet/sdk/8.0.126/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/AgentSystem.ServiceDefaults.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/AgentSystem.ServiceDefaults.csproj",
+        "projectName": "AgentSystem.ServiceDefaults",
+        "projectPath": "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/AgentSystem.ServiceDefaults.csproj",
+        "packagesPath": "/home/tedch/.nuget/packages/",
+        "outputPath": "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/home/tedch/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "targetAlias": "net8.0",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        }
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "dependencies": {
+            "Microsoft.Extensions.Http.Resilience": {
+              "target": "Package",
+              "version": "[8.2.0, )"
+            },
+            "Microsoft.Extensions.ServiceDiscovery": {
+              "target": "Package",
+              "version": "[8.2.0, )"
+            },
+            "OpenTelemetry.Exporter.OpenTelemetryProtocol": {
+              "target": "Package",
+              "version": "[1.9.0, )"
+            },
+            "OpenTelemetry.Extensions.Hosting": {
+              "target": "Package",
+              "version": "[1.9.0, )"
+            },
+            "OpenTelemetry.Instrumentation.Http": {
+              "target": "Package",
+              "version": "[1.9.0, )"
+            },
+            "OpenTelemetry.Instrumentation.Runtime": {
+              "target": "Package",
+              "version": "[1.9.0, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/usr/lib/dotnet/sdk/8.0.126/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}

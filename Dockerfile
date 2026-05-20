@@ -1,7 +1,13 @@
+# AgentSystem — Boil-the-Ocean Docker Image
+# =============================================================================
+# Multi-stage build: Python 3.12 base + Bun for GStack workflow.
+# Targets Azure Container Apps with Streamlit dashboard + FastAPI backend.
+# =============================================================================
+
 # Stage 1: Runtime and System Dependencies
 FROM python:3.12-slim-bookworm AS base
 
-# Install system dependencies including curl for bun installation
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     unzip \
@@ -9,39 +15,45 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Bun (Mandatory for GStack workflow)
+# Install Bun (for GStack workflow)
 ENV BUN_INSTALL="/root/.bun"
 ENV PATH="$BUN_INSTALL/bin:$PATH"
 RUN curl -fsSL https://bun.sh/install | bash
 
-# Stage 2: Python Environment Setup
+# Stage 2: Application
 WORKDIR /app
 
-# Copy requirement files first for better caching
+# Copy and install Python dependencies (cached layer)
 COPY requirements.txt .
-# If you have a package.json for bun, uncomment below:
-# COPY package.json bun.lockb* ./
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
+# Copy application code
 COPY . .
 
-# Ensure standard directories exist for AgentSystem
+# Ensure runtime directories exist
 RUN mkdir -p /app/memory /app/logs /app/config
 
-# Set Environment Variables
+# Environment
 ENV PYTHONUNBUFFERED=1
-ENV PORT=8080
+ENV PYTHONPATH=/app
+ENV PORT=8501
 ENV APP_ENV=production
 
-# Expose ports for both possible use cases (FastAPI backend or Streamlit dashboard)
-EXPOSE 8080 8501
+# Expose Streamlit (8501) and FastAPI (8080)
+EXPOSE 8501 8080
 
-# Default label for Azure Container Apps
-LABEL org.opencontainers.image.source="https://github.com/alirezarezvani/claude-skills"
-LABEL description="AgentSystem Executive Hive - 38 Agent Orchestrator with Bun/GStack support"
+# Labels — correct repo reference
+LABEL org.opencontainers.image.source="https://github.com/claudeherve-ai/AgentSystem"
+LABEL org.opencontainers.image.description="AgentSystem Executive Hive — 38-Agent Orchestrator"
+LABEL org.opencontainers.image.title="AgentSystem"
 
-# The command is overridden by azure.yaml entrypoints, but provide a default for safety
-CMD ["python", "main.py"]
+# Health check — verify Streamlit is alive
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8501/_stcore/health || exit 1
+
+# Default: Streamlit dashboard (override for FastAPI in ACA config)
+CMD ["streamlit", "run", "dashboard.py", \
+     "--server.port=8501", \
+     "--server.address=0.0.0.0", \
+     "--server.headless=true", \
+     "--browser.serverAddress=0.0.0.0"]
