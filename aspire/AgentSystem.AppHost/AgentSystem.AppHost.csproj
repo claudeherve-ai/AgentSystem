@@ -4,14 +4,21 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <!-- Removed IsAspireHost to bypass workload requirement -->
+    <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Use standard Hosting packages without the Sdk-level workload requirement -->
-    <PackageReference Include="Aspire.Dashboard.Sdk.linux-x64" Version="8.2.2" />
+    <PackageReference Include="Aspire.Hosting.AppHost" Version="8.2.2" />
     <PackageReference Include="Aspire.Hosting" Version="8.2.2" />
-    <PackageReference Include="Aspire.Hosting.Orchestration.linux-x64" Version="8.2.2" />
     <PackageReference Include="Aspire.Hosting.Python" Version="8.2.2" />
+  </ItemGroup>
+  <!-- Platform-specific orchestration packages for Aspire dashboard + DCP -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="Aspire.Hosting.Orchestration.win-x64" Version="8.2.2" />
+    <PackageReference Include="Aspire.Dashboard.Sdk.win-x64" Version="8.2.2" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <PackageReference Include="Aspire.Hosting.Orchestration.linux-x64" Version="8.2.2" />
+    <PackageReference Include="Aspire.Dashboard.Sdk.linux-x64" Version="8.2.2" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AgentSystem.ServiceDefaults\AgentSystem.ServiceDefaults.csproj" />

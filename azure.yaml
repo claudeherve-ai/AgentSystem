@@ -1,43 +1,16 @@
 name: agentsystem
+metadata:
+  template: aspire-samples
 services:
   app:
-    project: .
+    project: ./aspire/AgentSystem.AppHost/AgentSystem.AppHost.csproj
     host: containerapp
-    language: python
-    dockerfile: Dockerfile
-    resources:
-      cpu: 1.0
-      memory: 2.0Gi
-    env:
-      - name: AGENTSYSTEM_MODE
-        value: all
-      - name: PORT_DASHBOARD
-        value: "8501"
-      - name: PORT_API
-        value: "8080"
-      - name: PYTHONPATH
-        value: /app
-    ports:
-      - port: 8501
-        name: dashboard
-      - port: 8080
-        name: api
-    scale:
-      minReplicas: 1
-      maxReplicas: 3
-    ingress:
-      external: true
-      targetPort: 8501
-      allowInsecure: false
-    livenessProbe:
-      httpGet:
-        path: /health
-        port: 8080
-      initialDelaySeconds: 30
-      periodSeconds: 10
-    readinessProbe:
-      httpGet:
-        path: /health
-        port: 8080
-      initialDelaySeconds: 10
-      periodSeconds: 5
+    language: dotnet
+hooks:
+  preprovision:
+    windows:
+      shell: pwsh
+      run: |
+        Write-Host "AgentSystem Aspire Deployment"
+        Write-Host "=============================="
+      continueOnError: false
