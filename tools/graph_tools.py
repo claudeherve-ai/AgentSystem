@@ -410,6 +410,7 @@ async def graph_get_upcoming_events(days_ahead: int = 1) -> list[dict]:
         end_dt = ev.get("end", {})
         loc = ev.get("location", {}).get("displayName", "No location")
         events.append({
+            "id": ev.get("id", ""),
             "subject": ev.get("subject", "Untitled"),
             "start": f"{start_dt.get('dateTime', '')} {start_dt.get('timeZone', 'UTC')}",
             "end": f"{end_dt.get('dateTime', '')} {end_dt.get('timeZone', 'UTC')}",
@@ -495,6 +496,64 @@ async def graph_create_event(
             return "ERR_AUTH_REQUIRED"
         resp.raise_for_status()
         return "Created"
+
+
+async def graph_update_event(
+    event_id: str,
+    subject: str = "",
+    start_iso: str = "",
+    end_iso: str = "",
+    location: str = "",
+) -> str:
+    """Update an existing calendar event by ID. Only changed fields need to be provided."""
+    import httpx
+
+    token = _get_graph_token()
+    if not token:
+        return "ERR_AUTH_REQUIRED"
+
+    url = f"https://graph.microsoft.com/v1.0/me/events/{event_id}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    payload: dict = {}
+    if subject:
+        payload["subject"] = subject
+    if start_iso:
+        payload["start"] = {"dateTime": start_iso, "timeZone": "UTC"}
+    if end_iso:
+        payload["end"] = {"dateTime": end_iso, "timeZone": "UTC"}
+    if location:
+        payload["location"] = {"displayName": location}
+
+    if not payload:
+        return "No fields to update."
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.patch(url, headers=headers, json=payload)
+        if resp.status_code == 401:
+            return "ERR_AUTH_REQUIRED"
+        resp.raise_for_status()
+        return "Updated"
+
+
+async def graph_delete_event(event_id: str) -> str:
+    """Delete a calendar event by ID."""
+    import httpx
+
+    token = _get_graph_token()
+    if not token:
+        return "ERR_AUTH_REQUIRED"
+
+    url = f"https://graph.microsoft.com/v1.0/me/events/{event_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.delete(url, headers=headers)
+        if resp.status_code == 401:
+            return "ERR_AUTH_REQUIRED"
+        resp.raise_for_status()
+        return "Deleted"
 
 
 def create_graph_client(credential):

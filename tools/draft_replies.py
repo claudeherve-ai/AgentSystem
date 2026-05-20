@@ -72,6 +72,8 @@ async def generate_draft_replies(
             unread_only=True,
             hours_window=hours_window,
         )
+        if isinstance(emails, str):
+            return f"Draft replies unavailable — {emails}"
     except Exception as exc:
         logger.warning("Draft replies email lookup failed: %s", exc)
         log_action(

@@ -50,6 +50,7 @@ async def get_upcoming_events(
         for i, evt in enumerate(events, 1):
             result += (
                 f"\n{i}. {evt['subject']}\n"
+                f"   ID: {evt.get('id', 'N/A')}\n"
                 f"   Start: {evt['start']}\n"
                 f"   End: {evt['end']}\n"
                 f"   Location: {evt.get('location') or 'N/A'}\n"
@@ -170,4 +171,67 @@ async def check_conflicts(
         return f"Error checking conflicts: {e}"
 
 
-CALENDAR_TOOLS = [get_upcoming_events, create_event, check_conflicts]
+async def update_event(
+    event_id: Annotated[str, "The event ID (shown when listing events)"],
+    subject: Annotated[str, "New event subject (optional)"] = "",
+    start_time: Annotated[str, "New start time in ISO format (optional)"] = "",
+    end_time: Annotated[str, "New end time in ISO format (optional)"] = "",
+    location: Annotated[str, "New location (optional)"] = "",
+) -> str:
+    """Update an existing calendar event. REQUIRES human approval. 
+    Only provide the fields you want to change — others stay the same."""
+    log_action("CalendarAgent", "update_event", f"event_id={event_id}")
+
+    details = (
+        f"Event ID: {event_id}\n"
+        f"Subject: {subject or '(unchanged)'}\n"
+        f"Start: {start_time or '(unchanged)'}\n"
+        f"End: {end_time or '(unchanged)'}\n"
+        f"Location: {location or '(unchanged)'}"
+    )
+
+    approved, feedback = await _approval.request_approval(
+        agent_name="CalendarAgent",
+        action="update_event",
+        details=details,
+    )
+    if not approved:
+        return f"Event update cancelled: {feedback}" if feedback else "Event update cancelled."
+
+    try:
+        from tools.graph_tools import graph_update_event
+        result = await graph_update_event(event_id, subject, start_time, end_time, location)
+        if isinstance(result, str) and result.startswith("ERR"):
+            return "Calendar not linked. Run 'link_account' to authenticate."
+        return f"Event updated successfully."
+    except Exception as e:
+        log_action("CalendarAgent", "update_event", f"Error: {e}", status="error")
+        return f"Error updating event: {e}"
+
+
+async def delete_event(
+    event_id: Annotated[str, "The event ID (shown when listing events)"],
+) -> str:
+    """Delete a calendar event. REQUIRES human approval."""
+    log_action("CalendarAgent", "delete_event", f"event_id={event_id}")
+
+    approved, feedback = await _approval.request_approval(
+        agent_name="CalendarAgent",
+        action="delete_event",
+        details=f"Event ID: {event_id}",
+    )
+    if not approved:
+        return f"Event deletion cancelled: {feedback}" if feedback else "Event deletion cancelled."
+
+    try:
+        from tools.graph_tools import graph_delete_event
+        result = await graph_delete_event(event_id)
+        if isinstance(result, str) and result.startswith("ERR"):
+            return "Calendar not linked. Run 'link_account' to authenticate."
+        return f"Event deleted."
+    except Exception as e:
+        log_action("CalendarAgent", "delete_event", f"Error: {e}", status="error")
+        return f"Error deleting event: {e}"
+
+
+CALENDAR_TOOLS = [get_upcoming_events, create_event, update_event, delete_event, check_conflicts]
