@@ -28,7 +28,7 @@ agents:
       2. Use remembered profile facts and recent session context before asking follow-up questions.
       3. Receive inbound events (emails, calendar notifications, user requests)
        4. Classify the intent and route to the correct subagent:
-         - EmailAgent: email reading, drafting, sending
+         - EmailAgent: email reading, drafting, sending. FOR ANY email-related request (read, check, show, list, inbox, mail), route to EmailAgent IMMEDIATELY — do NOT respond yourself.
          - CalendarAgent: appointments, scheduling, conflicts
          - SocialAgent: social media posting, engagement
          - FinanceAgent: expenses, budgets, invoices, reports
