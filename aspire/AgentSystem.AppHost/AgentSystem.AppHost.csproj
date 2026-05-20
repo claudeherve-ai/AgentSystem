@@ -8,7 +8,9 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Use standard Hosting packages without the Sdk-level workload requirement -->
+    <PackageReference Include="Aspire.Dashboard.Sdk.linux-x64" Version="8.2.2" />
     <PackageReference Include="Aspire.Hosting" Version="8.2.2" />
+    <PackageReference Include="Aspire.Hosting.Orchestration.linux-x64" Version="8.2.2" />
     <PackageReference Include="Aspire.Hosting.Python" Version="8.2.2" />
   </ItemGroup>
   <ItemGroup>
