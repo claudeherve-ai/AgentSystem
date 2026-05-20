@@ -14,7 +14,6 @@ import json
 import asyncio
 import logging
 import threading
-import time
 from datetime import datetime, timedelta, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -25,7 +24,9 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-CLIENT_ID = os.getenv("GRAPH_CLIENT_ID", "87704f61-305e-4c60-aa1c-6e00df266bd1")
+# Use env var first, fall back to the configured app ID
+# This ID is registered for AgentSystem and supports device-code flow
+CLIENT_ID = os.getenv("GRAPH_CLIENT_ID") or "87704f61-305e-4c60-aa1c-6e00df266bd1"
 AUTHORITY = "https://login.microsoftonline.com/common"
 SCOPES = ["User.Read", "Mail.Read", "Mail.Send", "Calendars.Read"]
 CACHE_PATH = os.path.join(os.getcwd(), "memory", "token_cache.bin")
@@ -40,7 +41,7 @@ _auth_server_lock = threading.Lock()
 # Background poller state
 _poller_thread: threading.Thread | None = None
 _poller_stop = threading.Event()
-_poller_result: dict | None = None  # populated when poller finishes
+_poller_result: dict | None = None
 _poller_lock = threading.Lock()
 
 
@@ -133,8 +134,6 @@ def _background_poller(flow: dict) -> None:
     app = PublicClientApplication(
         CLIENT_ID, authority=AUTHORITY, token_cache=_token_cache
     )
-
-    # Copy flow so the caller can mutate the original without affecting us
     flow = dict(flow)
 
     logger.info("Background poller started for device code %s...",
@@ -159,8 +158,6 @@ def _background_poller(flow: dict) -> None:
 
         error = result.get("error", "")
         if error == "authorization_pending":
-            # Normal — user hasn't finished browser auth yet.
-            # Sleep the poll interval and retry.
             interval = flow.get("interval", 5)
             _poller_stop.wait(interval)
             continue
@@ -169,7 +166,6 @@ def _background_poller(flow: dict) -> None:
             _poller_stop.wait(flow.get("interval", 5) + 2)
             continue
 
-        # Terminal error
         logger.warning("Background poller terminal error: %s — %s",
                        error, result.get("error_description", ""))
         with _poller_lock:
@@ -182,20 +178,14 @@ def _background_poller(flow: dict) -> None:
 
 def _start_background_poller(flow: dict) -> None:
     global _poller_thread, _poller_result, _poller_stop
-
-    # Stop any existing poller
     _poller_stop.set()
     if _poller_thread and _poller_thread.is_alive():
         _poller_thread.join(timeout=2)
-
     _poller_stop.clear()
     with _poller_lock:
         _poller_result = None
-
     _poller_thread = threading.Thread(
-        target=_background_poller,
-        args=(flow,),
-        daemon=True,
+        target=_background_poller, args=(flow,), daemon=True,
     )
     _poller_thread.start()
     logger.info("Background poller thread started")
@@ -212,21 +202,17 @@ def _cleanup_flow_state() -> None:
 # ── device-code auth ──────────────────────────────────────────────────────────
 
 async def graph_login() -> str:
-    """Initiate the Microsoft device-code flow.
-
-    Starts a background thread that continuously polls for the token, so
-    graph_finish_login() can be a fast cache check.
-    """
+    """Initiate the Microsoft device-code flow with background polling."""
     _init_cache()
     _start_auth_server()
 
-    # Guard: if a flow is already running, show current state
     if os.path.exists(FLOW_STATE_PATH):
         with open(FLOW_STATE_PATH, "r") as f:
             existing = json.load(f)
 
         # Check if the code has actually expired
         expires_in = existing.get("expires_in", 900)
+        # We stored the flow dict at creation time; estimate expiry from file mtime
         try:
             file_age = __import__("time").time() - os.path.getmtime(FLOW_STATE_PATH)
         except OSError:
@@ -255,14 +241,11 @@ async def graph_login() -> str:
         logger.error("Device flow initiation failed: %s", error)
         return f"Error initiating device flow: {error}"
 
-    # Save flow for potential recovery and to prevent double-initiation
     flow_state = dict(flow)
     os.makedirs(os.path.dirname(FLOW_STATE_PATH), exist_ok=True)
     with open(FLOW_STATE_PATH, "w") as f:
         json.dump(flow_state, f)
 
-    # Start the background poller — this thread will block until the user
-    # completes auth or the code expires, but it runs in the background.
     _start_background_poller(flow_state)
 
     return (
@@ -277,23 +260,16 @@ async def graph_login() -> str:
 
 
 async def graph_finish_login() -> str:
-    """Check whether the background poller has acquired a token.
-
-    Fast — no blocking poll.  Returns success if the token is in cache,
-    or a status message if still waiting.
-    """
+    """Check whether the background poller has acquired a token.  Fast — no blocking poll."""
     _init_cache()
 
-    # Check if the background poller has saved a result
     with _poller_lock:
         result = _poller_result
 
     if result is not None and "access_token" in result:
-        # Token already acquired by background poller
         _save_cache()
         _cleanup_flow_state()
         _stop_auth_server()
-
         claims = result.get("id_token_claims", {})
         username = claims.get("preferred_username", claims.get("upn", "unknown"))
         return f"Graph Connection Secured!  Signed in as {username}."
@@ -303,24 +279,15 @@ async def graph_finish_login() -> str:
         error_desc = result.get("error_description", "")
         _cleanup_flow_state()
         _stop_auth_server()
-
         if error in ("expired_token", "device_code_expired"):
             return "Device code expired.  Run **relink_account** for a fresh code."
         if error == "exception":
             return f"Auth error: {error_desc}"
-
         return f"Auth failed: {error_desc or error}"
 
-    # Check if the flow state exists (poller might still be running)
     if os.path.exists(FLOW_STATE_PATH):
         with open(FLOW_STATE_PATH, "r") as f:
             flow = json.load(f)
-        # Estimate remaining time
-        expires_in = flow.get("expires_in", 900)
-        logger.info(
-            "finish_link: poller still running, "
-            "flow exists, expires_in=%s", expires_in
-        )
         return (
             "Still waiting for you to complete authentication in the browser.\n\n"
             f"Code: **{flow.get('user_code', '???')}**\n"
@@ -329,8 +296,6 @@ async def graph_finish_login() -> str:
             "type **finish_link** again and it should pick up the token immediately."
         )
 
-    # Flow state gone, no result — poller might have cleaned up
-    # Try direct cache check as last resort
     token = _get_graph_token()
     if token:
         _stop_auth_server()
@@ -343,7 +308,7 @@ async def graph_finish_login() -> str:
 
 
 async def graph_logout() -> str:
-    """Remove the cached token so the next request will re-authenticate."""
+    """Remove the cached token and stop background poller."""
     global _poller_stop
     _init_cache()
     app = PublicClientApplication(
@@ -365,7 +330,6 @@ async def graph_logout() -> str:
 # ── Graph API calls ───────────────────────────────────────────────────────────
 
 def _get_graph_token() -> str | None:
-    """Return a valid access token from cache, or None."""
     _init_cache()
     app = PublicClientApplication(
         CLIENT_ID, authority=AUTHORITY, token_cache=_token_cache
@@ -383,11 +347,9 @@ def _get_graph_token() -> str | None:
 
 async def _graph_get(path: str, params: dict | None = None) -> dict | None:
     import httpx
-
     token = _get_graph_token()
     if not token:
         return None
-
     url = f"https://graph.microsoft.com/v1.0{path}"
     headers = {"Authorization": f"Bearer {token}"}
     async with httpx.AsyncClient(timeout=30) as client:
@@ -412,7 +374,6 @@ async def graph_read_inbox(
             datetime.now(timezone.utc) - timedelta(hours=hours_window)
         ).isoformat()
         filters.append(f"receivedDateTime ge {cutoff}")
-
     params: dict = {
         "$top": min(count, 50),
         "$orderby": "receivedDateTime desc",
@@ -420,27 +381,23 @@ async def graph_read_inbox(
     }
     if filters:
         params["$filter"] = " and ".join(filters)
-
     data = await _graph_get("/me/mailFolders/inbox/messages", params=params)
     if data is None:
         return "ERR_AUTH_REQUIRED"
-
     messages = data.get("value", [])
     results: list[dict] = []
     for msg in messages:
         sender = msg.get("from", {}).get("emailAddress", {})
-        results.append(
-            {
-                "id": msg.get("id", ""),
-                "subject": msg.get("subject", "(No subject)"),
-                "from": sender.get("address", "unknown"),
-                "from_name": sender.get("name", "unknown"),
-                "preview": msg.get("bodyPreview", ""),
-                "received": msg.get("receivedDateTime", ""),
-                "is_unread": not msg.get("isRead", True),
-                "importance": msg.get("importance", "normal"),
-            }
-        )
+        results.append({
+            "id": msg.get("id", ""),
+            "subject": msg.get("subject", "(No subject)"),
+            "from": sender.get("address", "unknown"),
+            "from_name": sender.get("name", "unknown"),
+            "preview": msg.get("bodyPreview", ""),
+            "received": msg.get("receivedDateTime", ""),
+            "is_unread": not msg.get("isRead", True),
+            "importance": msg.get("importance", "normal"),
+        })
     return results
 
 
@@ -476,7 +433,6 @@ async def graph_get_upcoming_events(days_ahead: int = 1) -> list[dict]:
 
 async def graph_create_reply_draft(message_id: str, html_body: str) -> str:
     import httpx
-
     token = _get_graph_token()
     if not token:
         return ""
@@ -500,13 +456,9 @@ async def graph_create_reply_draft(message_id: str, html_body: str) -> str:
 
 
 async def graph_send_email(
-    to: str,
-    subject: str,
-    body: str,
-    content_type: str = "Text",
+    to: str, subject: str, body: str, content_type: str = "Text",
 ) -> str:
     import httpx
-
     token = _get_graph_token()
     if not token:
         return "ERR_AUTH_REQUIRED"
@@ -532,13 +484,9 @@ async def graph_send_email(
 
 
 async def graph_create_event(
-    subject: str,
-    start_iso: str,
-    end_iso: str,
-    location: str = "",
+    subject: str, start_iso: str, end_iso: str, location: str = "",
 ) -> str:
     import httpx
-
     token = _get_graph_token()
     if not token:
         return "ERR_AUTH_REQUIRED"

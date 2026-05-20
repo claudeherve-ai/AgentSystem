@@ -2,7 +2,7 @@
 AgentSystem — Calendar Agent.
 
 Manages calendar operations via Microsoft Graph API.
-Supports reading, creating, updating, deleting events, and conflict detection.
+Supports reading upcoming events, creating events, and conflict detection.
 """
 
 import logging
@@ -31,12 +31,14 @@ async def get_upcoming_events(
 
     try:
         from tools.graph_tools import graph_get_upcoming_events
+
         events = await graph_get_upcoming_events(days_ahead)
 
+        # Auth error handling
         if isinstance(events, str):
             if events == "ERR_AUTH_REQUIRED":
                 return (
-                    "Calendar not linked. Run 'relink_account' to authenticate "
+                    "Calendar not linked. Run 'link_account' to authenticate "
                     "— it covers both email and calendar."
                 )
             return f"Calendar error: {events}"
@@ -99,10 +101,11 @@ async def create_event(
 
     try:
         from tools.graph_tools import graph_create_event
+
         result = await graph_create_event(subject, start_time, end_time, location)
         if isinstance(result, str) and result.startswith("ERR"):
             return (
-                "Calendar not linked. Run 'relink_account' to authenticate "
+                "Calendar not linked. Run 'link_account' to authenticate "
                 "— it covers both email and calendar."
             )
         return (
@@ -116,6 +119,58 @@ async def create_event(
         return f"Error creating event: {e}"
 
 
+async def check_conflicts(
+    start_time: Annotated[str, "Start time in ISO format"],
+    end_time: Annotated[str, "End time in ISO format"],
+) -> str:
+    """Check for scheduling conflicts in the given time window."""
+    log_action("CalendarAgent", "check_conflicts", f"{start_time} to {end_time}")
+
+    try:
+        from tools.graph_tools import graph_get_upcoming_events
+
+        # Use get_upcoming_events to check the window
+        events = await graph_get_upcoming_events(days_ahead=365)
+
+        if isinstance(events, str):
+            if events == "ERR_AUTH_REQUIRED":
+                return "Calendar not linked. Run 'link_account' to authenticate."
+            return f"Could not check conflicts: {events}"
+
+        # Filter events in the requested window
+        try:
+            req_start = datetime.fromisoformat(start_time)
+            req_end = datetime.fromisoformat(end_time)
+        except ValueError:
+            return f"Invalid date format. Use ISO format (e.g., 2026-03-20T10:00:00)."
+
+        conflicts = []
+        for evt in events:
+            try:
+                evt_start_str = evt["start"].split(" ")[0]
+                evt_end_str = evt["end"].split(" ")[0]
+                evt_start = datetime.fromisoformat(evt_start_str)
+                evt_end = datetime.fromisoformat(evt_end_str)
+
+                # Check overlap
+                if evt_start < req_end and evt_end > req_start:
+                    conflicts.append(evt)
+            except (ValueError, KeyError):
+                continue
+
+        if not conflicts:
+            return f"No conflicts found between {start_time} and {end_time}."
+
+        result = f"{len(conflicts)} conflict(s) found:\n{'─' * 50}\n"
+        for i, c in enumerate(conflicts[:5], 1):
+            result += f"  {i}. {c['subject']} ({c['start']} to {c['end']})\n"
+        return result
+
+    except Exception as e:
+        log_action("CalendarAgent", "check_conflicts", f"Error: {e}", status="error")
+        return f"Error checking conflicts: {e}"
+
+
 async def update_event(
     event_id: Annotated[str, "The event ID (shown when listing events)"],
     subject: Annotated[str, "New event subject (optional)"] = "",
@@ -123,7 +178,8 @@ async def update_event(
     end_time: Annotated[str, "New end time in ISO format (optional)"] = "",
     location: Annotated[str, "New location (optional)"] = "",
 ) -> str:
-    """Update an existing calendar event. REQUIRES human approval."""
+    """Update an existing calendar event. REQUIRES human approval. 
+    Only provide the fields you want to change — others stay the same."""
     log_action("CalendarAgent", "update_event", f"event_id={event_id}")
 
     details = (
@@ -146,8 +202,8 @@ async def update_event(
         from tools.graph_tools import graph_update_event
         result = await graph_update_event(event_id, subject, start_time, end_time, location)
         if isinstance(result, str) and result.startswith("ERR"):
-            return "Calendar not linked. Run 'relink_account' to authenticate."
-        return "Event updated successfully."
+            return "Calendar not linked. Run 'link_account' to authenticate."
+        return f"Event updated successfully."
     except Exception as e:
         log_action("CalendarAgent", "update_event", f"Error: {e}", status="error")
         return f"Error updating event: {e}"
@@ -171,58 +227,11 @@ async def delete_event(
         from tools.graph_tools import graph_delete_event
         result = await graph_delete_event(event_id)
         if isinstance(result, str) and result.startswith("ERR"):
-            return "Calendar not linked. Run 'relink_account' to authenticate."
-        return "Event deleted."
+            return "Calendar not linked. Run 'link_account' to authenticate."
+        return f"Event deleted."
     except Exception as e:
         log_action("CalendarAgent", "delete_event", f"Error: {e}", status="error")
         return f"Error deleting event: {e}"
-
-
-async def check_conflicts(
-    start_time: Annotated[str, "Start time in ISO format"],
-    end_time: Annotated[str, "End time in ISO format"],
-) -> str:
-    """Check for scheduling conflicts in the given time window."""
-    log_action("CalendarAgent", "check_conflicts", f"{start_time} to {end_time}")
-
-    try:
-        from tools.graph_tools import graph_get_upcoming_events
-        events = await graph_get_upcoming_events(days_ahead=365)
-
-        if isinstance(events, str):
-            if events == "ERR_AUTH_REQUIRED":
-                return "Calendar not linked. Run 'relink_account' to authenticate."
-            return f"Could not check conflicts: {events}"
-
-        try:
-            req_start = datetime.fromisoformat(start_time)
-            req_end = datetime.fromisoformat(end_time)
-        except ValueError:
-            return f"Invalid date format. Use ISO format (e.g., 2026-03-20T10:00:00)."
-
-        conflicts = []
-        for evt in events:
-            try:
-                evt_start_str = evt["start"].split(" ")[0]
-                evt_end_str = evt["end"].split(" ")[0]
-                evt_start = datetime.fromisoformat(evt_start_str)
-                evt_end = datetime.fromisoformat(evt_end_str)
-                if evt_start < req_end and evt_end > req_start:
-                    conflicts.append(evt)
-            except (ValueError, KeyError):
-                continue
-
-        if not conflicts:
-            return f"No conflicts found between {start_time} and {end_time}."
-
-        result = f"{len(conflicts)} conflict(s) found:\n{'─' * 50}\n"
-        for i, c in enumerate(conflicts[:5], 1):
-            result += f"  {i}. {c['subject']} ({c['start']} to {c['end']})\n"
-        return result
-
-    except Exception as e:
-        log_action("CalendarAgent", "check_conflicts", f"Error: {e}", status="error")
-        return f"Error checking conflicts: {e}"
 
 
 CALENDAR_TOOLS = [get_upcoming_events, create_event, update_event, delete_event, check_conflicts]
