@@ -32,4 +32,4 @@ _backup_*/
 memory/device_flow.json
 memory/token_cache.bin
 .venv-wsl/
-claude-skills/
+claude-skills
