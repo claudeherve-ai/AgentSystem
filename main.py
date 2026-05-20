@@ -15,6 +15,49 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import get_system_config
 from agents.factory import build_orchestrator
 from agents.orchestrator import Orchestrator
+from tools.audit import log_action
+from tools.code_interpreter import run_python
+from tools.critique import critique_response
+from tools.file_reader import read_file
+from tools.knowledge_base import kb_index, kb_list_sources, kb_search
+from tools.rag_tools import (
+    case_index_rebuild,
+    case_index_update,
+    case_list_indexed,
+    case_search,
+)
+from tools.plans_tools import (
+    plan_add_step,
+    plan_cancel,
+    plan_create,
+    plan_events,
+    plan_get,
+    plan_list,
+    plan_resume,
+    plan_step_update,
+)
+from tools.screen_context import (
+    clear_active_case,
+    detect_active_case,
+    get_active_case,
+    get_active_window_title,
+    paste_to_clipboard,
+    read_clipboard,
+    set_active_case,
+)
+from tools.project_workspace import (
+    project_archive,
+    project_create,
+    project_list,
+    project_note,
+    project_open,
+    project_status,
+)
+from tools.web_fetch import web_fetch
+from tools.web_search import web_search
+from tools.daily_briefing import generate_daily_briefing
+from tools.draft_replies import generate_draft_replies
+from tools.end_of_day import generate_eod_review
 from tools.notification import NotificationGateway, create_default_gateway
 from tools.mcp_tools import print_mcp_banner
 
