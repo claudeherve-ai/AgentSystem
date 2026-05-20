@@ -27,3 +27,8 @@ Desktop.ini
 
 # Backups
 _backup_*/
+
+# Auth runtime artifacts
+memory/device_flow.json
+memory/token_cache.bin
+.venv-wsl/
