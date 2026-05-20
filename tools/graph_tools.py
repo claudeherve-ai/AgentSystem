@@ -24,8 +24,9 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Use env var if set, otherwise fall back to the configured cloud app ID
-CLIENT_ID = os.getenv("GRAPH_CLIENT_ID", "04b07795-8ddb-461a-bbee-02f9e1bf7b46")
+# Use env var first, fall back to the configured app ID
+# This ID is registered for AgentSystem and supports device-code flow
+CLIENT_ID = os.getenv("GRAPH_CLIENT_ID") or "87704f61-305e-4c60-aa1c-6e00df266bd1"
 AUTHORITY = "https://login.microsoftonline.com/common"
 SCOPES = ["User.Read", "Mail.Read", "Mail.Send", "Calendars.Read"]
 CACHE_PATH = os.path.join(os.getcwd(), "memory", "token_cache.bin")
