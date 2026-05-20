@@ -151,11 +151,22 @@ class Orchestrator:
             return None
 
         if name not in self._agents:
+            # Augment instructions with claude-skills context
+            instructions = registration.system_message
+            try:
+                from skills.claude_skills_integration import build_skill_context_for_agent
+                skill_ctx = build_skill_context_for_agent(name)
+                if skill_ctx:
+                    instructions = instructions + "\n" + skill_ctx
+                    logger.info("Augmented %s with claude-skills context", name)
+            except Exception:
+                pass  # Skills repo not available — gracefully degrade
+
             self._agents[name] = Agent(
                 name=registration.name,
                 description=registration.description or f"Agent: {registration.name}",
                 client=self._get_model_client(),
-                instructions=registration.system_message,
+                instructions=instructions,
                 tools=registration.tools,
                 default_options=get_default_agent_options(),
             )

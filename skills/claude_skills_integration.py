@@ -31,6 +31,9 @@ logger = logging.getLogger("agentsystem.claude-skills")
 CLAUDE_SKILLS_ROOT = Path.home() / "claude-skills"
 if not CLAUDE_SKILLS_ROOT.exists():
     CLAUDE_SKILLS_ROOT = Path("/home/tedch/claude-skills")
+if not CLAUDE_SKILLS_ROOT.exists():
+    # Docker / cloud path
+    CLAUDE_SKILLS_ROOT = Path("/app/claude-skills")
 
 # ── Agent-to-skill-domain mapping ──────────────────────────────────────────
 AGENT_SKILL_MAP: dict[str, list[str]] = {
