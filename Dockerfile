@@ -1,28 +1,10 @@
 # AgentSystem — Boil-the-Ocean Docker Image
 # =============================================================================
-# Multi-stage build:
-#   Stage 1 (skills-src): Slim claude-skills (SKILL.md + scripts only)
-#   Stage 2 (app): Python 3.12 + Bun + AgentSystem + claude-skills
+# Python 3.12 + Bun + AgentSystem + slimmed claude-skills.
 # Targets Azure Container Apps with Streamlit dashboard + FastAPI backend.
 # =============================================================================
 
-# ── Stage 1: Slim claude-skills ─────────────────────────────────────────────
-FROM python:3.12-slim-bookworm AS skills-src
-RUN apt-get update && apt-get install -y rsync && rm -rf /var/lib/apt/lists/*
-# claude-skills is expected at build context root or mounted
-# Only copy SKILL.md, scripts/*.py, references/*.md — exclude .git, assets, docs
-COPY claude-skills/ /tmp/claude-skills-full/
-RUN mkdir -p /tmp/claude-skills-slim && \
-    (find /tmp/claude-skills-full -name "SKILL.md" -exec dirname {} \; | sort -u | while read d; do \
-        mkdir -p "/tmp/claude-skills-slim/${d#/tmp/claude-skills-full/}"; \
-        cp "$d/SKILL.md" "/tmp/claude-skills-slim/${d#/tmp/claude-skills-full/}/" 2>/dev/null; \
-        cp -r "$d/scripts" "/tmp/claude-skills-slim/${d#/tmp/claude-skills-full/}/" 2>/dev/null; \
-        cp -r "$d/references" "/tmp/claude-skills-slim/${d#/tmp/claude-skills-full/}/" 2>/dev/null; \
-    done) 2>/dev/null; \
-    echo "Skills slimmed: $(find /tmp/claude-skills-slim -name 'SKILL.md' | wc -l) SKILL.md files"
-
-# ── Stage 2: Application ────────────────────────────────────────────────────
-FROM python:3.12-slim-bookworm AS app
+FROM python:3.12-slim-bookworm
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -37,14 +19,14 @@ RUN curl -fsSL https://bun.sh/install | bash
 WORKDIR /app
 
 # Copy and install Python dependencies (cached layer)
-COPY requirements.txt .
+COPY agentsystem/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY agentsystem/ .
 
-# Copy slim claude-skills from stage 1
-COPY --from=skills-src /tmp/claude-skills-slim /app/claude-skills
+# Copy slimmed claude-skills
+COPY claude-skills-slim /app/claude-skills
 
 # Ensure runtime directories exist
 RUN mkdir -p /app/memory /app/logs /app/config
@@ -60,7 +42,7 @@ EXPOSE 8501 8080
 
 # Labels
 LABEL org.opencontainers.image.source="https://github.com/claudeherve-ai/AgentSystem"
-LABEL org.opencontainers.image.description="AgentSystem Executive Hive — 36-Agent Orchestrator + Claude-Skills"
+LABEL org.opencontainers.image.description="AgentSystem Executive Hive — 36-Agent Orchestrator + 714 Claude-Skills"
 LABEL org.opencontainers.image.title="AgentSystem"
 
 # Health check
