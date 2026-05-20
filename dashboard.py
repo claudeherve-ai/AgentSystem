@@ -17,7 +17,7 @@ def render_command_center():
     for m in st.session_state.messages:
         with st.chat_message(m["role"]): st.markdown(m["content"])
 
-    if pr := st.chat_input("Command the hive..."):
+    if pr := st.chat_input("Command the hive (e.g., 'link_account' or 'finish_link' or 'check my inbox')"):
         st.session_state.messages.append({"role": "user", "content": pr})
         with st.chat_message("user"): st.markdown(pr)
         with st.chat_message("assistant"):
