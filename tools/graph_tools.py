@@ -403,7 +403,7 @@ async def graph_get_upcoming_events(days_ahead: int = 1) -> list[dict]:
         },
     )
     if data is None:
-        return []
+        return "ERR_AUTH_REQUIRED"
     events: list[dict] = []
     for ev in data.get("value", []):
         start_dt = ev.get("start", {})
