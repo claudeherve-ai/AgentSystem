@@ -209,8 +209,15 @@ async def graph_login() -> str:
     if os.path.exists(FLOW_STATE_PATH):
         with open(FLOW_STATE_PATH, "r") as f:
             existing = json.load(f)
-        msg = str(existing.get("message", ""))
-        if "expired" not in msg.lower():
+
+        # Check if the code has actually expired
+        expires_in = existing.get("expires_in", 900)
+        # We stored the flow dict at creation time; estimate expiry from file mtime
+        try:
+            file_age = __import__("time").time() - os.path.getmtime(FLOW_STATE_PATH)
+        except OSError:
+            file_age = 9999
+        if file_age < expires_in:
             return (
                 "A device login flow is already in progress.\n\n"
                 f"Code: **{existing.get('user_code', '???')}**\n"
@@ -219,6 +226,10 @@ async def graph_login() -> str:
                 "automatically after you authenticate.  Type **finish_link** to "
                 "check if it's ready."
             )
+
+        # Code expired — clean up and generate a fresh one
+        _cleanup_flow_state()
+        _poller_stop.set()
 
     app = PublicClientApplication(
         CLIENT_ID, authority=AUTHORITY, token_cache=_token_cache
