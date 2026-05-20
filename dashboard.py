@@ -5,29 +5,34 @@ from agents.factory import build_orchestrator
 
 st.set_page_config(page_title="AgentSystem Dashboard", page_icon="🤖", layout="wide")
 
-if "orchestrator" not in st.session_state:
+# BUILD VERSION: 1778719094 - ENSURES REFRESH
+if "build_ver" not in st.session_state or st.session_state.build_ver != "1778719094":
     st.session_state.orchestrator = build_orchestrator()
+    st.session_state.build_ver = "1778719094"
+    st.session_state.messages = []
 
 def render_command_center():
     st.title("🎮 COMMAND CENTER")
-    st.caption(f"Hive Status: {len(st.session_state.orchestrator.agent_names)} Agents Registered.")
-    
-    if "messages" not in st.session_state: st.session_state.messages = []
+    names = st.session_state.orchestrator.agent_names
+    st.caption(f"System: {len(names)} Agents Online | Cluster: Azure eastus2")
     
     for m in st.session_state.messages:
         with st.chat_message(m["role"]): st.markdown(m["content"])
 
-    if pr := st.chat_input("Command the hive..."):
+    if pr := st.chat_input("Issue command (e.g., 'relink_account' or 'finish_link' or 'List mail')"):
         st.session_state.messages.append({"role": "user", "content": pr})
-        with st.chat_message("user"): st.markdown(pr)
-        with st.chat_message("assistant"):
-            with st.spinner("Processing..."):
-                try:
-                    res = asyncio.run(st.session_state.orchestrator.handle_user_input(pr))
-                    st.markdown(res)
-                    st.session_state.messages.append({"role": "assistant", "content": res})
-                except Exception as e:
-                    st.error(f"Execution Error: {e}")
+        st.rerun()
+
+if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+    last_prompt = st.session_state.messages[-1]["content"]
+    with st.chat_message("assistant"):
+        with st.spinner("Executing Azure-Native Hive..."):
+            try:
+                resp = asyncio.run(st.session_state.orchestrator.handle_user_input(last_prompt))
+                st.session_state.messages.append({"role": "assistant", "content": resp})
+                st.rerun()
+            except Exception as e:
+                st.error(f"Execution Error: {e}")
 
 st.sidebar.title("🤖 AgentSystem")
 choice = st.sidebar.radio("Navigation", ["COMMAND CENTER", "Overview", "Metrics", "Health"])
@@ -36,4 +41,4 @@ if choice == "COMMAND CENTER":
     render_command_center()
 else:
     st.title(f"📊 {choice}")
-    st.info("Switch to COMMAND CENTER to interact with agents.")
+    st.info("Switch to COMMAND CENTER to interact.")

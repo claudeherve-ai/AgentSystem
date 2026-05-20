@@ -241,12 +241,18 @@ async def generate_daily_briefing(
 
     try:
         events = await graph_get_upcoming_events(days_ahead=1)
+        if isinstance(events, str):
+            calendar_note = f"- Calendar: {events}"
+            events = []
     except Exception as exc:
         calendar_note = f"- Calendar unavailable: {exc}"
         logger.warning("Daily briefing calendar lookup failed: %s", exc)
 
     try:
         emails = await graph_read_inbox(count=15, unread_only=True, hours_window=hours_window)
+        if isinstance(emails, str):
+            email_note = f"- Email: {emails}"
+            emails = []
         for email in emails:
             score, reasons = _score_email_importance(email, contact_markers, now, hours_window)
             if score >= 2:
