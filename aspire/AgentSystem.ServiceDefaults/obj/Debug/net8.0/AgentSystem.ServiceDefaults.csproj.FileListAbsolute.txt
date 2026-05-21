@@ -24,3 +24,16 @@ C:/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/obj/Debug/net8.0/r
 /mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/obj/Debug/net8.0/refint/AgentSystem.ServiceDefaults.dll
 /mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/obj/Debug/net8.0/AgentSystem.ServiceDefaults.pdb
 /mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/obj/Debug/net8.0/ref/AgentSystem.ServiceDefaults.dll
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\bin\Debug\net8.0\AgentSystem.ServiceDefaults.deps.json
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\bin\Debug\net8.0\AgentSystem.ServiceDefaults.dll
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\bin\Debug\net8.0\AgentSystem.ServiceDefaults.pdb
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\obj\Debug\net8.0\AgentSystem.ServiceDefaults.csproj.AssemblyReference.cache
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\obj\Debug\net8.0\AgentSystem.ServiceDefaults.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\obj\Debug\net8.0\AgentSystem.ServiceDefaults.AssemblyInfoInputs.cache
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\obj\Debug\net8.0\AgentSystem.ServiceDefaults.AssemblyInfo.cs
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\obj\Debug\net8.0\AgentSystem.ServiceDefaults.csproj.CoreCompileInputs.cache
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\obj\Debug\net8.0\AgentSystem.ServiceDefaults.sourcelink.json
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\obj\Debug\net8.0\AgentSystem.ServiceDefaults.dll
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\obj\Debug\net8.0\refint\AgentSystem.ServiceDefaults.dll
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\obj\Debug\net8.0\AgentSystem.ServiceDefaults.pdb
+C:\Users\tedch\AgentSystem\aspire\AgentSystem.ServiceDefaults\obj\Debug\net8.0\ref\AgentSystem.ServiceDefaults.dll

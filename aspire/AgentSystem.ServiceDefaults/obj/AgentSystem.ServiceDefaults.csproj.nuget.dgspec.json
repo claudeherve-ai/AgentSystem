@@ -1,20 +1,20 @@
 {
   "format": 1,
   "restore": {
-    "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/AgentSystem.ServiceDefaults.csproj": {}
+    "C:\\Users\\tedch\\AgentSystem\\aspire\\AgentSystem.ServiceDefaults\\AgentSystem.ServiceDefaults.csproj": {}
   },
   "projects": {
-    "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/AgentSystem.ServiceDefaults.csproj": {
+    "C:\\Users\\tedch\\AgentSystem\\aspire\\AgentSystem.ServiceDefaults\\AgentSystem.ServiceDefaults.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/AgentSystem.ServiceDefaults.csproj",
+        "projectUniqueName": "C:\\Users\\tedch\\AgentSystem\\aspire\\AgentSystem.ServiceDefaults\\AgentSystem.ServiceDefaults.csproj",
         "projectName": "AgentSystem.ServiceDefaults",
-        "projectPath": "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/AgentSystem.ServiceDefaults.csproj",
-        "packagesPath": "/home/tedch/.nuget/packages/",
-        "outputPath": "/mnt/c/Users/tedch/AgentSystem/aspire/AgentSystem.ServiceDefaults/obj/",
+        "projectPath": "C:\\Users\\tedch\\AgentSystem\\aspire\\AgentSystem.ServiceDefaults\\AgentSystem.ServiceDefaults.csproj",
+        "packagesPath": "C:\\Users\\tedch\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\tedch\\AgentSystem\\aspire\\AgentSystem.ServiceDefaults\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "/home/tedch/.nuget/NuGet/NuGet.Config"
+          "C:\\Users\\tedch\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net8.0"
@@ -24,6 +24,7 @@
         },
         "frameworks": {
           "net8.0": {
+            "framework": "net8.0",
             "targetAlias": "net8.0",
             "projectReferences": {}
           }
@@ -32,10 +33,17 @@
           "warnAsError": [
             "NU1605"
           ]
-        }
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "11.0.100"
       },
       "frameworks": {
         "net8.0": {
+          "framework": "net8.0",
           "targetAlias": "net8.0",
           "dependencies": {
             "Microsoft.Extensions.Diagnostics.HealthChecks": {
@@ -78,12 +86,31 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
+          "downloadDependencies": [
+            {
+              "name": "Microsoft.AspNetCore.App.Ref",
+              "version": "[8.0.25, 8.0.25]"
+            },
+            {
+              "name": "Microsoft.NETCore.App.Ref",
+              "version": "[8.0.25, 8.0.25]"
+            },
+            {
+              "name": "Microsoft.WindowsDesktop.App.Ref",
+              "version": "[8.0.25, 8.0.25]"
+            }
+          ],
           "frameworkReferences": {
             "Microsoft.NETCore.App": {
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/lib/dotnet/sdk/8.0.126/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\11.0.100-preview.4.26230.115/PortableRuntimeIdentifierGraph.json"
+        }
+      },
+      "runtimes": {
+        "linux-x64": {
+          "#import": []
         }
       }
     }

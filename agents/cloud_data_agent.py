@@ -1,0 +1,11 @@
+"""CloudDataAgent — Cloud, data, and DevOps powerhouse.
+Merges: DataEngineer + AzureArchitect + Databricks + DevOpsAutomator"""
+import sys; from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from agents.dataengineer_agent import (design_pipeline,generate_schema,create_data_quality_checks,design_lakehouse,optimize_query,create_pipeline_monitoring)
+from agents.azurearchitect_agent import (design_cloud_architecture,review_architecture_risks,troubleshoot_cloud_issue,plan_cloud_migration,compare_cloud_options)
+from agents.databricks_agent import (design_databricks_platform,troubleshoot_databricks_issue,optimize_spark_workload,review_databricks_governance,plan_databricks_delivery)
+from agents.devopsautomator_agent import (design_cicd_pipeline,create_infrastructure,design_container_setup,create_monitoring_stack,design_disaster_recovery,create_deployment_strategy)
+from tools.mcp_tools import MCP_SEQUENTIAL_THINKING_TOOLS
+CLOUDDATA_TOOLS = [design_pipeline,generate_schema,create_data_quality_checks,design_lakehouse,optimize_query,create_pipeline_monitoring,design_cloud_architecture,review_architecture_risks,troubleshoot_cloud_issue,plan_cloud_migration,compare_cloud_options,design_databricks_platform,troubleshoot_databricks_issue,optimize_spark_workload,review_databricks_governance,plan_databricks_delivery,design_cicd_pipeline,create_infrastructure,design_container_setup,create_monitoring_stack,design_disaster_recovery,create_deployment_strategy]+list(MCP_SEQUENTIAL_THINKING_TOOLS)
+__all__=["CLOUDDATA_TOOLS"]

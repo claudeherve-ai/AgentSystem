@@ -1,381 +1,280 @@
 """
-AgentSystem — Agent Factory.
-
-Unified build orchestrator that registers all 38 specialist agents.
-Used by both the local CLI (main.py) and the cloud dashboard (dashboard.py).
-
-Boil-the-Ocean commitment: every agent gets full tools, full instructions,
-and is ready to deliver enterprise-grade results from the moment of registration.
+AgentSystem — Agent Factory v3.0
+18 powerhouse agents with inter-agent handoff. Each agent has:
+- Base capability tools (web search, code execution, KB, critique)
+- Domain-specific tools from merged specialist agents
+- Claude-skills context injection
+- Handoff to peer agents for cross-domain tasks
 """
 import sys
 from pathlib import Path
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import get_agent_configs, get_system_config
+from config import get_agent_configs
 from agents.orchestrator import Orchestrator
 from agents.email_agent import EMAIL_TOOLS
 from agents.calendar_agent import CALENDAR_TOOLS
 from agents.social_agent import SOCIAL_TOOLS
-from agents.finance_agent import FINANCE_TOOLS
-from agents.business_agent import BUSINESS_TOOLS
-from agents.problemsolver_agent import PROBLEMSOLVER_TOOLS
-from agents.aiengineer_agent import AIENGINEER_TOOLS
 from agents.enterprise_agent import ENTERPRISE_TOOLS
-from agents.growthhacker_agent import GROWTHHACKER_TOOLS
-from agents.legal_agent import LEGAL_TOOLS
-from agents.seniordev_agent import SENIORDEV_TOOLS
-from agents.softwarearchitect_agent import SOFTWAREARCHITECT_TOOLS
-from agents.dataengineer_agent import DATAENGINEER_TOOLS
-from agents.azurearchitect_agent import AZUREARCHITECT_TOOLS
-from agents.databricks_agent import DATABRICKS_TOOLS
-from agents.uxarchitect_agent import UXARCHITECT_TOOLS
+from agents.business_agent import BUSINESS_TOOLS
+from agents.aiengineer_agent import AIENGINEER_TOOLS
+from agents.securityengineer_agent import SECURITYENGINEER_TOOLS
 from agents.productmanager_agent import PRODUCTMANAGER_TOOLS
 from agents.projectmanager_agent import PROJECTMANAGER_TOOLS
-from agents.proposalstrategist_agent import PROPOSALSTRATEGIST_TOOLS
-from agents.dealstrategist_agent import DEALSTRATEGIST_TOOLS
-from agents.optimizationarchitect_agent import OPTIMIZATIONARCHITECT_TOOLS
-from agents.devopsautomator_agent import DEVOPSAUTOMATOR_TOOLS
-from agents.legaldocreview_agent import LEGALDOCREVIEW_TOOLS
-from agents.realestate_agent import REALESTATE_TOOLS
-from agents.investmentresearcher_agent import INVESTMENTRESEARCHER_TOOLS
 from agents.projectshepherd_agent import PROJECTSHEPHERD_TOOLS
-from agents.securityengineer_agent import SECURITYENGINEER_TOOLS
-from agents.frontenddev_agent import FRONTENDDEV_TOOLS
-from agents.backendarchitect_agent import BACKENDARCHITECT_TOOLS
-from agents.taxstrategist_agent import TAXSTRATEGIST_TOOLS
+from agents.realestate_agent import REALESTATE_TOOLS
 from agents.emailintel_agent import EMAILINTEL_TOOLS
-from agents.salesproposal_agent import SALESPROPOSAL_TOOLS
-from agents.research_agent import (
-    RESEARCH_AGENT_DESCRIPTION,
-    RESEARCH_AGENT_INSTRUCTIONS,
-    RESEARCH_AGENT_NAME,
-    RESEARCH_AGENT_TOOLS,
-)
-from agents.codeexecutor_agent import (
-    CODEEXECUTOR_AGENT_DESCRIPTION,
-    CODEEXECUTOR_AGENT_INSTRUCTIONS,
-    CODEEXECUTOR_AGENT_NAME,
-    CODEEXECUTOR_AGENT_TOOLS,
-)
-from agents.documentanalyst_agent import (
-    DOCUMENTANALYST_AGENT_DESCRIPTION,
-    DOCUMENTANALYST_AGENT_INSTRUCTIONS,
-    DOCUMENTANALYST_AGENT_NAME,
-    DOCUMENTANALYST_AGENT_TOOLS,
-)
-from agents.critic_agent import (
-    CRITIC_AGENT_DESCRIPTION,
-    CRITIC_AGENT_INSTRUCTIONS,
-    CRITIC_AGENT_NAME,
-    CRITIC_AGENT_TOOLS,
-)
+
+# Merged agent tools
+from agents.engineering_agent import ENGINEERING_TOOLS
+from agents.cloud_data_agent import CLOUDDATA_TOOLS
+from agents.revenue_agent import REVENUE_TOOLS
+from agents.legal_agent_v2 import LEGAL_TOOLS_V2
+from agents.finance_agent_v2 import FINANCE_TOOLS_V2
+from agents.execution_agent import EXECUTION_TOOLS
 
 
 def build_orchestrator() -> Orchestrator:
-    """Build and configure the orchestrator with all 38 specialist agents."""
     agent_configs = get_agent_configs()
-    orchestrator = Orchestrator()
+    orch = Orchestrator()
 
-    # ── Communication & Productivity ─────────────────────────────────
-    email_cfg = agent_configs.get("email_agent", {})
-    orchestrator.register_agent(
+    # ── Communication ────────────────────────────────────────────────────
+    orch.register_agent(
         name="EmailAgent",
-        system_message=email_cfg.get("system_message", "You are an email management agent."),
-        description=email_cfg.get("description", "Reads, drafts, and sends emails"),
+        system_message=agent_configs.get("email_agent", {}).get("system_message", ""),
+        description="Read, draft, send emails via Microsoft Graph. Auth with link_account.",
         tools=EMAIL_TOOLS,
+        handoff_agents=["EmailIntelAgent", "CalendarAgent"],
     )
-
-    cal_cfg = agent_configs.get("calendar_agent", {})
-    orchestrator.register_agent(
+    orch.register_agent(
         name="CalendarAgent",
-        system_message=cal_cfg.get("system_message", "You are a calendar management agent."),
-        description=cal_cfg.get("description", "Manages appointments and scheduling"),
+        system_message=agent_configs.get("calendar_agent", {}).get("system_message", ""),
+        description="Manage appointments, scheduling, conflicts via Microsoft Graph",
         tools=CALENDAR_TOOLS,
+        handoff_agents=["EmailAgent"],
     )
-
-    social_cfg = agent_configs.get("social_agent", {})
-    orchestrator.register_agent(
+    orch.register_agent(
         name="SocialAgent",
-        system_message=social_cfg.get("system_message", "You are a social media management agent."),
-        description=social_cfg.get("description", "Manages social media posting"),
+        system_message=agent_configs.get("social_agent", {}).get("system_message", ""),
+        description="Social media posting, engagement across platforms",
         tools=SOCIAL_TOOLS,
+        handoff_agents=["RevenueAgent"],
     )
-
-    ei_cfg = agent_configs.get("emailintel_agent", {})
-    orchestrator.register_agent(
+    orch.register_agent(
         name="EmailIntelAgent",
-        system_message=ei_cfg.get("system_message", "You are an email intelligence specialist."),
-        description=ei_cfg.get("description", "Email thread analysis, action items, decision tracking"),
+        system_message=agent_configs.get("emailintel_agent", {}).get("system_message", ""),
+        description="Email thread analysis, action items, decision tracking",
         tools=EMAILINTEL_TOOLS,
+        handoff_agents=["EmailAgent"],
     )
 
-    # ── Business & Finance ──────────────────────────────────────────
-    finance_cfg = agent_configs.get("finance_agent", {})
-    orchestrator.register_agent(
+    # ── ENGINEERING HUB (6→1) ───────────────────────────────────────────
+    orch.register_agent(
+        name="EngineeringAgent",
+        system_message=(
+            "You are a world-class full-stack engineering lead covering software architecture, "
+            "senior development, backend systems, frontend UX, and performance optimization.\n\n"
+            "CAPABILITIES:\n"
+            "- Design system architectures with trade-off analysis, ADRs, domain models\n"
+            "- Review code for quality, security, and performance\n"
+            "- Generate production-ready implementations across the full stack\n"
+            "- Design database schemas, APIs, component architectures\n"
+            "- Create design systems, layouts, accessibility audits\n"
+            "- Optimize performance, API costs, circuit breakers, FinOps\n"
+            "- Debug complex issues across frontend, backend, and infrastructure\n\n"
+            "CRITICAL RULES:\n"
+            "1. Always use your tools — never give generic advice when you can design, review, or generate real output.\n"
+            "2. Search the web for current best practices before making architecture recommendations (use web_search + web_fetch).\n"
+            "3. Generate runnable code with run_python when demonstrating solutions.\n"
+            "4. Critique your own architecture decisions before presenting them.\n"
+            "5. Handoff to CloudDataAgent for cloud/infra questions, ExecutionAgent for research/debugging loops.\n"
+            "6. Every pixel intentional. 60fps animations. WCAG 2.1 AA compliance. Sub-1.5s loads."
+        ),
+        description="Full-stack engineering: architecture, code, review, performance, UX, optimization (25+ tools)",
+        tools=ENGINEERING_TOOLS,
+        handoff_agents=["CloudDataAgent", "ExecutionAgent", "SecurityEngineerAgent"],
+    )
+
+    # ── CLOUD & DATA HUB (4→1) ──────────────────────────────────────────
+    orch.register_agent(
+        name="CloudDataAgent",
+        system_message=(
+            "You are an elite cloud and data engineering specialist covering Azure architecture, "
+            "Databricks, data pipelines, DevOps, and infrastructure.\n\n"
+            "CAPABILITIES:\n"
+            "- Design cloud architectures on Azure with migration planning\n"
+            "- Build data pipelines following medallion architecture (Bronze→Silver→Gold)\n"
+            "- Design Databricks platforms, optimize Spark, governance review\n"
+            "- Create CI/CD pipelines, container setups, monitoring stacks\n"
+            "- Design disaster recovery, deployment strategies, infrastructure-as-code\n"
+            "- Troubleshoot cloud and data platform issues\n\n"
+            "CRITICAL RULES:\n"
+            "1. Always use your tools — design real architectures, not generic advice.\n"
+            "2. Search Microsoft Docs (microsoft_docs_search) before making Azure recommendations.\n"
+            "3. Generate IaC templates (Bicep/Terraform) via run_python.\n"
+            "4. Handoff to EngineeringAgent for application architecture, ExecutionAgent for research.\n"
+            "5. Idempotent, observable, self-healing — every design must meet these standards."
+        ),
+        description="Cloud architecture, data pipelines, Databricks, DevOps, CI/CD, IaC (22+ tools)",
+        tools=CLOUDDATA_TOOLS,
+        handoff_agents=["EngineeringAgent", "ExecutionAgent", "SecurityEngineerAgent"],
+    )
+
+    # ── REVENUE HUB (4→1) ───────────────────────────────────────────────
+    orch.register_agent(
+        name="RevenueAgent",
+        system_message=(
+            "You are a revenue powerhouse covering deal strategy, proposals, sales, and growth.\n\n"
+            "CAPABILITIES:\n"
+            "- Qualify deals with MEDDPICC, assess pipeline risk, forecast revenue\n"
+            "- Develop win themes, executive summaries, proposal architectures\n"
+            "- Analyze RFPs, create pricing narratives, competitive battle cards\n"
+            "- Design viral loops, A/B tests, funnel optimization, growth dashboards\n"
+            "- Create channel strategies, onboarding flows, growth experiments\n\n"
+            "CRITICAL RULES:\n"
+            "1. Always back recommendations with data — use web_search for market context.\n"
+            "2. Run financial calculations with run_python, not mental math.\n"
+            "3. Handoff to FinanceAgent for pricing/budget questions, LegalAgent for contract review.\n"
+            "4. Every deal strategy must cite MEDDPICC criteria explicitly.\n"
+            "5. Growth experiments must include success metrics and statistical significance thresholds."
+        ),
+        description="Deals, proposals, sales strategy, growth hacking, funnel optimization (20+ tools)",
+        tools=REVENUE_TOOLS,
+        handoff_agents=["FinanceAgent", "LegalAgent", "BusinessAgent"],
+    )
+
+    # ── LEGAL HUB (2→1) ─────────────────────────────────────────────────
+    orch.register_agent(
+        name="LegalAgent",
+        system_message=(
+            "You are a legal advisory and compliance specialist.\n\n"
+            "CAPABILITIES:\n"
+            "- Draft legal documents (NDA, ToS, DPA, contracts, privacy policies)\n"
+            "- Analyze compliance requirements (GDPR, HIPAA, SOC2, CCPA)\n"
+            "- Review contracts for risks and unfavorable terms\n"
+            "- Compare document versions, check regulatory compliance\n"
+            "- Create RFP response frameworks, legal research\n\n"
+            "CRITICAL RULES:\n"
+            "1. ALWAYS include a disclaimer: output is AI-generated legal information, NOT legal advice.\n"
+            "2. Recommend consulting a qualified attorney for all legal matters.\n"
+            "3. Search current regulations via web_search before making compliance claims.\n"
+            "4. Handoff to RevenueAgent for deal-related legal review.\n"
+            "5. Laws vary by jurisdiction — always note jurisdictional context."
+        ),
+        description="Legal docs, contracts, compliance (GDPR/SOC2/HIPAA), document review (8 tools)",
+        tools=LEGAL_TOOLS_V2,
+        handoff_agents=["RevenueAgent", "SecurityEngineerAgent"],
+    )
+
+    # ── FINANCE HUB (3→1) ───────────────────────────────────────────────
+    orch.register_agent(
         name="FinanceAgent",
-        system_message=finance_cfg.get("system_message", "You are a finance management agent."),
-        description=finance_cfg.get("description", "Tracks expenses, budgets, and invoices"),
-        tools=FINANCE_TOOLS,
+        system_message=(
+            "You are a comprehensive finance specialist covering FP&A, tax, and investments.\n\n"
+            "CAPABILITIES:\n"
+            "- Track expenses, create budgets, generate financial reports\n"
+            "- Analyze tax strategies, calculate estimated taxes, review tax positions\n"
+            "- Research companies, run due diligence, analyze portfolios\n"
+            "- Create invoices, track budget vs actuals\n\n"
+            "CRITICAL RULES:\n"
+            "1. Validate all calculations with run_python — never estimate numbers mentally.\n"
+            "2. Search current market data via web_search for investment decisions.\n"
+            "3. Handoff to RevenueAgent for deal economics, LegalAgent for tax law interpretation.\n"
+            "4. All financial advice must include risk disclaimers.\n"
+            "5. Use claude-skills financial tools for DCF, ratios, SaaS metrics when applicable."
+        ),
+        description="Financial planning, tax strategy, investment research, budgeting (11 tools)",
+        tools=FINANCE_TOOLS_V2,
+        handoff_agents=["RevenueAgent", "LegalAgent"],
     )
 
-    business_cfg = agent_configs.get("business_agent", {})
-    orchestrator.register_agent(
-        name="BusinessAgent",
-        system_message=business_cfg.get("system_message", "You are a business operations agent."),
-        description=business_cfg.get("description", "Manages customers, proposals, and CRM"),
-        tools=BUSINESS_TOOLS,
+    # ── EXECUTION HUB (4→1) ─────────────────────────────────────────────
+    orch.register_agent(
+        name="ExecutionAgent",
+        system_message=(
+            "You are the execution engine — research, code, debug, and critique in a tight loop.\n\n"
+            "WORKFLOW:\n"
+            "1. SEARCH: Use web_search + web_fetch to find current, grounded information\n"
+            "2. CODE: Use run_python to compute, transform, and generate output\n"
+            "3. REVIEW: Use critique_response to self-review before presenting\n"
+            "4. ITERATE: If the first approach fails, research again and retry\n\n"
+            "CAPABILITIES:\n"
+            "- Multi-step web research with citations\n"
+            "- Code execution and data transformation\n"
+            "- Systematic problem solving and debugging\n"
+            "- Self-critique and quality improvement\n"
+            "- Document analysis and extraction\n\n"
+            "CRITICAL RULES:\n"
+            "1. Never fabricate — every claim must be backed by a fetched source or computed result.\n"
+            "2. For Microsoft/Azure topics, use microsoft_docs_search first.\n"
+            "3. Handoff to EngineeringAgent for architecture/code, CloudDataAgent for infra, FinanceAgent for analysis.\n"
+            "4. Always run the research→code→review loop for complex tasks.\n"
+            "5. Cite sources inline [1], [2], etc."
+        ),
+        description="Research, code execution, debugging, critique — the execution loop (30+ tools)",
+        tools=EXECUTION_TOOLS,
+        handoff_agents=["EngineeringAgent", "CloudDataAgent", "FinanceAgent", "RevenueAgent"],
     )
 
-    tax_cfg = agent_configs.get("taxstrategist_agent", {})
-    orchestrator.register_agent(
-        name="TaxStrategistAgent",
-        system_message=tax_cfg.get("system_message", "You are a veteran tax strategist."),
-        description=tax_cfg.get("description", "Tax optimization, entity structuring, compliance"),
-        tools=TAXSTRATEGIST_TOOLS,
-    )
-
-    # ── Sales & Growth ──────────────────────────────────────────────
-    gh_cfg = agent_configs.get("growthhacker_agent", {})
-    orchestrator.register_agent(
-        name="GrowthHackerAgent",
-        system_message=gh_cfg.get("system_message", "You are a growth hacking specialist."),
-        description=gh_cfg.get("description", "Growth experiments and user acquisition"),
-        tools=GROWTHHACKER_TOOLS,
-    )
-
-    ds_cfg = agent_configs.get("dealstrategist_agent", {})
-    orchestrator.register_agent(
-        name="DealStrategistAgent",
-        system_message=ds_cfg.get("system_message", "You are a senior deal strategist."),
-        description=ds_cfg.get("description", "MEDDPICC qualification and pipeline risk"),
-        tools=DEALSTRATEGIST_TOOLS,
-    )
-
-    ps_cfg = agent_configs.get("proposalstrategist_agent", {})
-    orchestrator.register_agent(
-        name="ProposalStrategistAgent",
-        system_message=ps_cfg.get("system_message", "You are a senior proposal strategist."),
-        description=ps_cfg.get("description", "Win themes, RFP analysis, executive summaries"),
-        tools=PROPOSALSTRATEGIST_TOOLS,
-    )
-
-    sp_cfg = agent_configs.get("salesproposal_agent", {})
-    orchestrator.register_agent(
-        name="SalesProposalAgent",
-        system_message=sp_cfg.get("system_message", "You are a senior sales proposal strategist."),
-        description=sp_cfg.get("description", "Win themes, executive summaries, RFP analysis"),
-        tools=SALESPROPOSAL_TOOLS,
-    )
-
-    # ── Engineering & Architecture ──────────────────────────────────
-    sd_cfg = agent_configs.get("seniordev_agent", {})
-    orchestrator.register_agent(
-        name="SeniorDevAgent",
-        system_message=sd_cfg.get("system_message", "You are a senior full-stack developer."),
-        description=sd_cfg.get("description", "Premium code implementation and review"),
-        tools=SENIORDEV_TOOLS,
-    )
-
-    sa_cfg = agent_configs.get("softwarearchitect_agent", {})
-    orchestrator.register_agent(
-        name="SoftwareArchitectAgent",
-        system_message=sa_cfg.get("system_message", "You are an expert software architect."),
-        description=sa_cfg.get("description", "System design and architecture decisions"),
-        tools=SOFTWAREARCHITECT_TOOLS,
-    )
-
-    bea_cfg = agent_configs.get("backendarchitect_agent", {})
-    orchestrator.register_agent(
-        name="BackendArchitectAgent",
-        system_message=bea_cfg.get("system_message", "You are a senior backend architect."),
-        description=bea_cfg.get("description", "System design, database architecture, API design"),
-        tools=BACKENDARCHITECT_TOOLS,
-    )
-
-    fed_cfg = agent_configs.get("frontenddev_agent", {})
-    orchestrator.register_agent(
-        name="FrontendDevAgent",
-        system_message=fed_cfg.get("system_message", "You are an expert frontend developer."),
-        description=fed_cfg.get("description", "React/Vue/Angular, accessibility, performance optimization"),
-        tools=FRONTENDDEV_TOOLS,
-    )
-
-    ux_cfg = agent_configs.get("uxarchitect_agent", {})
-    orchestrator.register_agent(
-        name="UXArchitectAgent",
-        system_message=ux_cfg.get("system_message", "You are a UX architecture specialist."),
-        description=ux_cfg.get("description", "CSS systems, layouts, and accessibility"),
-        tools=UXARCHITECT_TOOLS,
-    )
-
-    # ── Cloud & Data ────────────────────────────────────────────────
-    de_cfg = agent_configs.get("dataengineer_agent", {})
-    orchestrator.register_agent(
-        name="DataEngineerAgent",
-        system_message=de_cfg.get("system_message", "You are an expert data engineer."),
-        description=de_cfg.get("description", "Data pipelines, lakehouse, and data quality"),
-        tools=DATAENGINEER_TOOLS,
-    )
-
-    az_cfg = agent_configs.get("azurearchitect_agent", {})
-    orchestrator.register_agent(
-        name="AzureSolutionArchitectAgent",
-        system_message=az_cfg.get("system_message", "You are an elite senior cloud solution architect."),
-        description=az_cfg.get("description", "Azure, hybrid, and multi-cloud architecture plus migration and troubleshooting"),
-        tools=AZUREARCHITECT_TOOLS,
-    )
-
-    dbx_cfg = agent_configs.get("databricks_agent", {})
-    orchestrator.register_agent(
-        name="DatabricksSpecialistAgent",
-        system_message=dbx_cfg.get("system_message", "You are a Databricks platform specialist."),
-        description=dbx_cfg.get("description", "Databricks architecture, governance, Spark optimization, delivery, and troubleshooting"),
-        tools=DATABRICKS_TOOLS,
-    )
-
-    do_cfg = agent_configs.get("devopsautomator_agent", {})
-    orchestrator.register_agent(
-        name="DevOpsAutomatorAgent",
-        system_message=do_cfg.get("system_message", "You are an expert DevOps engineer."),
-        description=do_cfg.get("description", "CI/CD, IaC, containers, monitoring, DR"),
-        tools=DEVOPSAUTOMATOR_TOOLS,
-    )
-
-    oa_cfg = agent_configs.get("optimizationarchitect_agent", {})
-    orchestrator.register_agent(
-        name="OptimizationArchitectAgent",
-        system_message=oa_cfg.get("system_message", "You are an optimization architect."),
-        description=oa_cfg.get("description", "API performance, cost optimization, circuit breakers"),
-        tools=OPTIMIZATIONARCHITECT_TOOLS,
-    )
-
-    # ── AI & Intelligence ───────────────────────────────────────────
-    ai_cfg = agent_configs.get("aiengineer_agent", {})
-    orchestrator.register_agent(
+    # ── STANDALONE SPECIALISTS ───────────────────────────────────────────
+    orch.register_agent(
         name="AIEngineerAgent",
-        system_message=ai_cfg.get("system_message", "You are an AI/ML engineering specialist."),
-        description=ai_cfg.get("description", "AI/ML implementation and LLM integration"),
+        system_message=agent_configs.get("aiengineer_agent", {}).get("system_message", ""),
+        description="AI/ML implementation, LLM integration, model deployment",
         tools=AIENGINEER_TOOLS,
+        handoff_agents=["EngineeringAgent", "ExecutionAgent"],
     )
-
-    ps_cfg_2 = agent_configs.get("problemsolver_agent", {})
-    orchestrator.register_agent(
-        name="ProblemSolverAgent",
-        system_message=ps_cfg_2.get("system_message", "You are a universal problem-solving specialist."),
-        description=ps_cfg_2.get("description", "Complex debugging and investigation"),
-        tools=PROBLEMSOLVER_TOOLS,
-    )
-
-    # ── Legal & Compliance ──────────────────────────────────────────
-    legal_cfg = agent_configs.get("legal_agent", {})
-    orchestrator.register_agent(
-        name="LegalAdvisorAgent",
-        system_message=legal_cfg.get("system_message", "You are a legal advisory agent."),
-        description=legal_cfg.get("description", "Legal docs, compliance, and contracts"),
-        tools=LEGAL_TOOLS,
-    )
-
-    ldr_cfg = agent_configs.get("legaldocreview_agent", {})
-    orchestrator.register_agent(
-        name="LegalDocReviewAgent",
-        system_message=ldr_cfg.get("system_message", "You are a legal document review specialist."),
-        description=ldr_cfg.get("description", "Contract analysis, risk clauses, version comparison"),
-        tools=LEGALDOCREVIEW_TOOLS,
-    )
-
-    # ── Enterprise & Strategy ───────────────────────────────────────
-    ent_cfg = agent_configs.get("enterprise_agent", {})
-    orchestrator.register_agent(
-        name="EnterpriseIntegrationAgent",
-        system_message=ent_cfg.get("system_message", "You are an enterprise integration architect."),
-        description=ent_cfg.get("description", "Enterprise system integrations"),
-        tools=ENTERPRISE_TOOLS,
-    )
-
-    pm_cfg = agent_configs.get("productmanager_agent", {})
-    orchestrator.register_agent(
-        name="ProductManagerAgent",
-        system_message=pm_cfg.get("system_message", "You are a seasoned product manager."),
-        description=pm_cfg.get("description", "PRDs, roadmaps, and go-to-market"),
-        tools=PRODUCTMANAGER_TOOLS,
-    )
-
-    pjm_cfg = agent_configs.get("projectmanager_agent", {})
-    orchestrator.register_agent(
-        name="ProjectManagerAgent",
-        system_message=pjm_cfg.get("system_message", "You are an expert project manager."),
-        description=pjm_cfg.get("description", "Project plans, risks, and stakeholder reports"),
-        tools=PROJECTMANAGER_TOOLS,
-    )
-
-    psh_cfg = agent_configs.get("projectshepherd_agent", {})
-    orchestrator.register_agent(
-        name="ProjectShepherdAgent",
-        system_message=psh_cfg.get("system_message", "You are an expert project coordinator."),
-        description=psh_cfg.get("description", "Cross-functional project coordination and stakeholder alignment"),
-        tools=PROJECTSHEPHERD_TOOLS,
-    )
-
-    re_cfg = agent_configs.get("realestate_agent", {})
-    orchestrator.register_agent(
-        name="RealEstateAgent",
-        system_message=re_cfg.get("system_message", "You are a real estate specialist."),
-        description=re_cfg.get("description", "Property analysis, CMA, offer strategy, investment analysis"),
-        tools=REALESTATE_TOOLS,
-    )
-
-    ir_cfg = agent_configs.get("investmentresearcher_agent", {})
-    orchestrator.register_agent(
-        name="InvestmentResearcherAgent",
-        system_message=ir_cfg.get("system_message", "You are a veteran investment researcher."),
-        description=ir_cfg.get("description", "Investment research, due diligence, portfolio analysis"),
-        tools=INVESTMENTRESEARCHER_TOOLS,
-    )
-
-    # ── Security ────────────────────────────────────────────────────
-    sec_cfg = agent_configs.get("securityengineer_agent", {})
-    orchestrator.register_agent(
+    orch.register_agent(
         name="SecurityEngineerAgent",
-        system_message=sec_cfg.get("system_message", "You are an application security engineer."),
-        description=sec_cfg.get("description", "Threat modeling, vulnerability assessment, secure code review"),
+        system_message=agent_configs.get("securityengineer_agent", {}).get("system_message", ""),
+        description="Threat modeling, vulnerability assessment, secure code review",
         tools=SECURITYENGINEER_TOOLS,
+        handoff_agents=["EngineeringAgent", "CloudDataAgent", "LegalAgent"],
+    )
+    orch.register_agent(
+        name="EnterpriseIntegrationAgent",
+        system_message=agent_configs.get("enterprise_agent", {}).get("system_message", ""),
+        description="Enterprise system integrations, API orchestration, B2B connectivity",
+        tools=ENTERPRISE_TOOLS,
+        handoff_agents=["EngineeringAgent", "CloudDataAgent"],
+    )
+    orch.register_agent(
+        name="ProductManagerAgent",
+        system_message=agent_configs.get("productmanager_agent", {}).get("system_message", ""),
+        description="PRDs, roadmaps, user stories, go-to-market strategy",
+        tools=PRODUCTMANAGER_TOOLS,
+        handoff_agents=["EngineeringAgent", "RevenueAgent", "ExecutionAgent"],
+    )
+    orch.register_agent(
+        name="ProjectManagerAgent",
+        system_message=agent_configs.get("projectmanager_agent", {}).get("system_message", ""),
+        description="Project plans, risks, stakeholder reports, timelines",
+        tools=PROJECTMANAGER_TOOLS,
+        handoff_agents=["ProductManagerAgent", "EngineeringAgent"],
+    )
+    orch.register_agent(
+        name="ProjectShepherdAgent",
+        system_message=agent_configs.get("projectshepherd_agent", {}).get("system_message", ""),
+        description="Cross-functional project coordination and stakeholder alignment",
+        tools=PROJECTSHEPHERD_TOOLS,
+        handoff_agents=["ProjectManagerAgent"],
+    )
+    orch.register_agent(
+        name="BusinessAgent",
+        system_message=agent_configs.get("business_agent", {}).get("system_message", ""),
+        description="CRM, customer records, business proposals, follow-ups",
+        tools=BUSINESS_TOOLS,
+        handoff_agents=["RevenueAgent", "FinanceAgent"],
+    )
+    orch.register_agent(
+        name="RealEstateAgent",
+        system_message=agent_configs.get("realestate_agent", {}).get("system_message", ""),
+        description="Property analysis, CMA, offer strategy, investment analysis",
+        tools=REALESTATE_TOOLS,
+        handoff_agents=["FinanceAgent", "LegalAgent"],
     )
 
-    # ── Boil-the-Ocean Specialist Agents ────────────────────────────
-    research_cfg = agent_configs.get("research_agent", {})
-    orchestrator.register_agent(
-        name=RESEARCH_AGENT_NAME,
-        system_message=research_cfg.get("system_message", RESEARCH_AGENT_INSTRUCTIONS),
-        description=research_cfg.get("description", RESEARCH_AGENT_DESCRIPTION),
-        tools=RESEARCH_AGENT_TOOLS,
-    )
-
-    codeexec_cfg = agent_configs.get("codeexecutor_agent", {})
-    orchestrator.register_agent(
-        name=CODEEXECUTOR_AGENT_NAME,
-        system_message=codeexec_cfg.get("system_message", CODEEXECUTOR_AGENT_INSTRUCTIONS),
-        description=codeexec_cfg.get("description", CODEEXECUTOR_AGENT_DESCRIPTION),
-        tools=CODEEXECUTOR_AGENT_TOOLS,
-    )
-
-    docanalyst_cfg = agent_configs.get("documentanalyst_agent", {})
-    orchestrator.register_agent(
-        name=DOCUMENTANALYST_AGENT_NAME,
-        system_message=docanalyst_cfg.get("system_message", DOCUMENTANALYST_AGENT_INSTRUCTIONS),
-        description=docanalyst_cfg.get("description", DOCUMENTANALYST_AGENT_DESCRIPTION),
-        tools=DOCUMENTANALYST_AGENT_TOOLS,
-    )
-
-    critic_cfg = agent_configs.get("critic_agent", {})
-    orchestrator.register_agent(
-        name=CRITIC_AGENT_NAME,
-        system_message=critic_cfg.get("system_message", CRITIC_AGENT_INSTRUCTIONS),
-        description=critic_cfg.get("description", CRITIC_AGENT_DESCRIPTION),
-        tools=CRITIC_AGENT_TOOLS,
-    )
-
-    return orchestrator
+    return orch
 
 
 __all__ = ["build_orchestrator"]

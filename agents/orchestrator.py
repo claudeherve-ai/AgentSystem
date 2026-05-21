@@ -1,10 +1,9 @@
 """
-AgentSystem — Orchestrator.
+AgentSystem — Orchestrator v2.0
 
-The central brain that receives events and routes them to specialized subagents.
-Built on Microsoft Agent Framework with a coordinator agent that calls specialist agents as tools.
+Inter-agent handoff enabled. Specialist agents can call other agents
+as tools, creating a mesh of collaborative intelligence.
 """
-
 import logging
 import os
 import sys
@@ -15,7 +14,6 @@ from typing import Any, Optional
 from agent_framework import Agent, AgentSession
 from agent_framework.openai import OpenAIChatCompletionClient
 
-# Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import get_agent_configs, get_model_config, get_system_config
@@ -54,6 +52,19 @@ from tools.web_search import WEB_SEARCH_TOOLS
 
 logger = logging.getLogger(__name__)
 
+# ── Base capability tools available to ALL specialist agents ──────────────
+BASE_CAPABILITY_TOOLS = (
+    list(WEB_SEARCH_TOOLS)
+    + list(WEB_FETCH_TOOLS)
+    + list(FILE_READER_TOOLS)
+    + list(CODE_INTERPRETER_TOOLS)
+    + list(KNOWLEDGE_BASE_TOOLS)
+    + list(CRITIQUE_TOOLS)
+    + list(MCP_DOCS_TOOLS)
+    + list(MCP_GITHUB_TOOLS)
+    + list(MCP_SEQUENTIAL_THINKING_TOOLS)
+)
+
 
 @dataclass(slots=True)
 class AgentRegistration:
@@ -63,15 +74,10 @@ class AgentRegistration:
     system_message: str
     description: str = ""
     tools: list[Any] = field(default_factory=list)
+    handoff_agents: list[str] = field(default_factory=list)  # Agents this agent can call
 
 
 def create_model_client() -> OpenAIChatCompletionClient:
-    """
-    Create the LLM client based on configuration.
-
-    Uses Microsoft Agent Framework's OpenAI Chat Completions client so the
-    existing Azure OpenAI chat deployment keeps working with minimal churn.
-    """
     model_cfg = get_model_config()
     model_name = model_cfg.resolved_model
 
@@ -89,43 +95,27 @@ def create_model_client() -> OpenAIChatCompletionClient:
         )
     elif model_cfg.provider == "openai":
         if not model_cfg.openai_api_key:
-            raise ValueError(
-                "OpenAI API key not configured. Set OPENAI_API_KEY in .env"
-            )
+            raise ValueError("OpenAI API key not configured. Set OPENAI_API_KEY in .env")
         return OpenAIChatCompletionClient(
-            model=model_name,
-            api_key=model_cfg.openai_api_key,
+            model=model_name, api_key=model_cfg.openai_api_key,
         )
     else:
         raise ValueError(f"Unsupported model provider: {model_cfg.provider}")
 
 
 def get_default_agent_options() -> dict[str, Any]:
-    """Build default model options for all Agent Framework agents."""
     model_cfg = get_model_config()
     options: dict[str, Any] = {
         "max_tokens": model_cfg.max_tokens,
-        # Keep tool execution serial so console approval prompts do not overlap.
-        "allow_multiple_tool_calls": False,
+        "allow_multiple_tool_calls": True,  # Enable parallel tool calls for handoff
     }
-
     if model_cfg.supports_custom_temperature:
         options["temperature"] = model_cfg.temperature
-
     return options
 
 
 class Orchestrator:
-    """
-    Central orchestrator that manages subagents and routes tasks.
-
-    Responsibilities:
-    - Maintain the agent registry
-    - Receive inbound events (email, calendar, user input)
-    - Route to the correct specialist agent
-    - Let specialist tools enforce approvals and guardrails
-    - Log everything for audit
-    """
+    """Central orchestrator with inter-agent handoff."""
 
     def __init__(self):
         self._system_config = get_system_config()
@@ -139,19 +129,18 @@ class Orchestrator:
         self._conversation_session = AgentSession(session_id=self._active_session_id)
 
     def _get_model_client(self) -> OpenAIChatCompletionClient:
-        """Lazy-load the model client."""
         if self._model_client is None:
             self._model_client = create_model_client()
         return self._model_client
 
     def _get_or_create_agent(self, name: str) -> Optional[Agent]:
-        """Create a specialist agent only when it is first needed."""
+        """Create a specialist agent with inter-agent handoff tools."""
         registration = self._registrations.get(name)
         if registration is None:
             return None
 
         if name not in self._agents:
-            # Augment instructions with claude-skills context
+            # Build augmented instructions
             instructions = registration.system_message
             try:
                 from skills.claude_skills_integration import build_skill_context_for_agent
@@ -160,20 +149,51 @@ class Orchestrator:
                     instructions = instructions + "\n" + skill_ctx
                     logger.info("Augmented %s with claude-skills context", name)
             except Exception:
-                pass  # Skills repo not available — gracefully degrade
+                pass
+
+            # Build tool list: base capabilities + agent-specific tools + handoff agents
+            tools = list(BASE_CAPABILITY_TOOLS) + list(registration.tools)
+
+            # Add handoff agents as tools
+            handoff_count = 0
+            for handoff_name in registration.handoff_agents:
+                if handoff_name == name:
+                    continue
+                handoff_agent = self._get_or_create_agent(handoff_name)
+                if handoff_agent is not None:
+                    hreg = self._registrations.get(handoff_name)
+                    tools.append(
+                        handoff_agent.as_tool(
+                            name=f"call_{handoff_name}",
+                            description=f"Delegate to {handoff_name}: {hreg.description if hreg else ''}",
+                            arg_name="request",
+                            arg_description=f"Full task description for {handoff_name}",
+                        )
+                    )
+                    handoff_count += 1
+
+            if handoff_count > 0:
+                instructions += (
+                    f"\n\n## INTER-AGENT HANDOFF\n"
+                    f"You can call these agents for specialized help:\n" +
+                    "\n".join(f"  - call_{h} — delegate work to {h}"
+                              for h in registration.handoff_agents if h != name) +
+                    "\nUse handoffs when the task spans another agent's expertise. "
+                    "Always synthesize their output into a coherent final response."
+                )
+                logger.info("Agent %s has %d handoff agents", name, handoff_count)
 
             self._agents[name] = Agent(
                 name=registration.name,
                 description=registration.description or f"Agent: {registration.name}",
                 client=self._get_model_client(),
                 instructions=instructions,
-                tools=registration.tools,
+                tools=tools,
                 default_options=get_default_agent_options(),
             )
         return self._agents[name]
 
     def _build_orchestrator_instructions(self) -> str:
-        """Build coordinator instructions with a routing guide for specialists."""
         orchestrator_config = self._agent_configs.get("orchestrator", {})
         base_instructions = orchestrator_config.get(
             "system_message",
@@ -221,16 +241,12 @@ class Orchestrator:
         )
 
     def _get_or_create_coordinator(self) -> Agent:
-        """Create the top-level coordinator that calls specialist agents as tools."""
         if self._coordinator is None:
             specialist_tools = (
                 list(MEMORY_TOOLS)
                 + list(DAILY_BRIEFING_TOOLS)
                 + list(END_OF_DAY_TOOLS)
                 + list(DRAFT_REPLY_TOOLS)
-                # Boil-the-Ocean capability tools — always available to the coordinator
-                # so any conversation can search the web, read files, run code, or use
-                # the knowledge base without bouncing through a specialist agent first.
                 + list(WEB_SEARCH_TOOLS)
                 + list(WEB_FETCH_TOOLS)
                 + list(FILE_READER_TOOLS)
@@ -238,24 +254,14 @@ class Orchestrator:
                 + list(KNOWLEDGE_BASE_TOOLS)
                 + list(PROJECT_WORKSPACE_TOOLS)
                 + list(CRITIQUE_TOOLS)
-                # MCP-backed grounding tools — first-party Microsoft Learn
-                # docs always available; GitHub MCP degrades gracefully when
-                # `GITHUB_TOKEN` is not configured.
                 + list(MCP_DOCS_TOOLS)
                 + list(MCP_GITHUB_TOOLS)
-                # MCP Tier 1 (HTTP, no-auth) — DeepWiki, Context7, Hugging Face.
-                # Always-on grounding for OSS repos, library docs, and ML models.
                 + list(MCP_DEEPWIKI_TOOLS)
                 + list(MCP_CONTEXT7_TOOLS)
                 + list(MCP_HUGGINGFACE_TOOLS)
-                # MCP Tier 2 (HTTP, opt-in via tokens) — Notion, Sentry, Atlassian.
-                # Each degrades cleanly when its token env var is not set.
                 + list(MCP_NOTION_TOOLS)
                 + list(MCP_SENTRY_TOOLS)
                 + list(MCP_ATLASSIAN_TOOLS)
-                # MCP Tier 3 (stdio via npx/uvx) — Filesystem, Sequential Thinking,
-                # Memory Graph, Git, SQLite, Time, Fetch. Each requires its
-                # transport (Node or uv) plus an explicit env opt-in to activate.
                 + list(MCP_FILESYSTEM_TOOLS)
                 + list(MCP_SEQUENTIAL_THINKING_TOOLS)
                 + list(MCP_MEMORY_GRAPH_TOOLS)
@@ -263,16 +269,8 @@ class Orchestrator:
                 + list(MCP_SQLITE_TOOLS)
                 + list(MCP_TIME_TOOLS)
                 + list(MCP_FETCH_TOOLS)
-                # RAG over Work_cases\Cases\ — semantic + FTS5 over local
-                # case artifacts. Degrades to FTS-only when no embedding
-                # deployment is configured (`AZURE_EMBEDDING_DEPLOYMENT`).
                 + list(RAG_TOOLS)
-                # Durable plan/task store — multi-step plans persisted across
-                # restarts, resumable by id, with per-step owner_agent routing.
                 + list(PLANS_TOOLS)
-                # Screen-context tools — clipboard, active-window title,
-                # auto-detected/persisted active case folder. Windows-aware;
-                # degrades cleanly on other platforms.
                 + list(SCREEN_CONTEXT_TOOLS)
             )
             for registration in self._registrations.values():
@@ -299,11 +297,9 @@ class Orchestrator:
         return self._coordinator
 
     def _build_contextualized_task(self, task: str) -> str:
-        """Attach durable memory and recent conversation context to the task."""
         memory_summary = self._memory_store.build_memory_summary(limit=12)
         recent_turns = self._memory_store.render_recent_turns(
-            self._active_session_id,
-            limit=6,
+            self._active_session_id, limit=6,
         )
         return (
             "Continue an ongoing conversation with the same human user.\n"
@@ -323,47 +319,47 @@ class Orchestrator:
         system_message: str,
         description: str = "",
         tools: Optional[list] = None,
+        handoff_agents: Optional[list[str]] = None,
     ) -> AgentRegistration:
         """
         Register a subagent with the orchestrator.
 
         Args:
-            name: Unique agent name (e.g., "EmailAgent")
+            name: Unique agent name
             system_message: The agent's system prompt
-            description: Short routing description for the coordinator
+            description: Short routing description
             tools: List of callable tools the agent can use
+            handoff_agents: Other agents this agent can call
         """
         registration = AgentRegistration(
             name=name,
             system_message=system_message,
             description=description or f"Agent: {name}",
             tools=tools or [],
+            handoff_agents=handoff_agents or [],
         )
         self._registrations[name] = registration
         self._agents.pop(name, None)
         self._coordinator = None
 
-        logger.info(f"Registered agent: {name} (tools: {len(tools or [])})")
+        logger.info(
+            "Registered agent: %s (tools: %d, handoffs: %d)",
+            name, len(tools or []), len(handoff_agents or []),
+        )
         log_action("Orchestrator", "register_agent", f"Registered {name}")
         return registration
 
     def get_agent(self, name: str) -> Optional[Agent]:
-        """Get a registered specialist agent by name."""
         return self._get_or_create_agent(name)
 
     @property
     def agent_names(self) -> list[str]:
-        """List all registered agent names."""
         return list(self._registrations.keys())
 
     async def route_task(self, task: str) -> str:
-        """
-        Route a task to the appropriate subagent(s) using the coordinator agent.
-        """
         if not self._registrations:
             return "No agents registered. Please register agents first."
 
-        # Run the coordinator
         log_action("Orchestrator", "route_task", task[:200], status="started")
         coordinator = self._get_or_create_coordinator()
         contextualized_task = self._build_contextualized_task(task)
@@ -372,17 +368,11 @@ class Orchestrator:
                 contextualized_task,
                 session=self._conversation_session,
             )
-        except Exception as exc:  # noqa: BLE001 — we need to classify by name
+        except Exception as exc:
             exc_name = type(exc).__name__
             if "ContentFilter" in exc_name or "content_filter" in str(exc):
                 logger.warning("Content filter tripped on coordinator call: %s", exc)
-                log_action(
-                    "Orchestrator",
-                    "route_task",
-                    task[:200],
-                    "content_filter",
-                    status="blocked",
-                )
+                log_action("Orchestrator", "route_task", task[:200], "content_filter", status="blocked")
                 return (
                     "⚠️  Azure OpenAI's content filter blocked this turn. This usually means "
                     "one of the items in my memory or conversation history tripped a filter "
@@ -405,40 +395,23 @@ class Orchestrator:
         if final_response:
             self._memory_store.save_turn(self._active_session_id, "assistant", final_response)
 
-        log_action(
-            "Orchestrator",
-            "route_task",
-            task[:200],
-            final_response[:500],
-            status="completed",
-        )
-
+        log_action("Orchestrator", "route_task", task[:200], final_response[:500], status="completed")
         return final_response or "Task completed but no response was generated."
 
     async def handle_user_input(self, user_input: str) -> str:
-        """
-        Handle a direct user input — the main entry point for interactive use.
-        """
         logger.info(f"User input: {user_input[:100]}...")
         return await self.route_task(user_input)
 
     def get_memory_summary(self) -> str:
-        """Return a compact summary of durable user memory."""
         return self._memory_store.build_memory_summary(limit=50)
 
     def reset_session(self) -> str:
-        """Start a new conversational session while keeping durable memory."""
         self._active_session_id = self._memory_store.start_new_session()
         self._conversation_session = AgentSession(session_id=self._active_session_id)
-        log_action(
-            "Orchestrator",
-            "reset_session",
-            output_summary=f"session_id={self._active_session_id}",
-        )
+        log_action("Orchestrator", "reset_session", output_summary=f"session_id={self._active_session_id}")
         return self._active_session_id
 
     def status(self) -> dict[str, Any]:
-        """Return the current system status."""
         return {
             "system": self._system_config.name,
             "approval_required": self._system_config.approval_required,
