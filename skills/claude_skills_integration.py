@@ -37,12 +37,55 @@ if not CLAUDE_SKILLS_ROOT.exists():
 
 # ── Agent-to-skill-domain mapping ──────────────────────────────────────────
 AGENT_SKILL_MAP: dict[str, list[str]] = {
-    # C-Suite / Strategy
-    "SoftwareArchitectAgent": [
+    # ── Merged Agents v3.0 ───────────────────────────────────────────
+    "EngineeringAgent": [
+        # All engineering domains merged
         "c-level-advisor/skills/cto-advisor",
-        "engineering/chaos-engineering",
+        "engineering",                    # POWERFUL: agent design, RAG, MCP, SLO, chaos
+        "engineering-team/skills",        # Core: fullstack, AI/ML, DevOps, security
         "engineering/slo-architect",
+        "engineering/chaos-engineering",
     ],
+    "CloudDataAgent": [
+        "engineering/docker-development",
+        "engineering/kubernetes-operator",
+        "engineering/terraform-patterns",
+        "engineering/helm-chart-builder",
+        "engineering/chaos-engineering",
+        "project-management/skills",      # Atlassian, Jira, Confluence
+    ],
+    "RevenueAgent": [
+        "c-level-advisor/skills/cro-advisor",
+        "c-level-advisor/skills/cmo-advisor",
+        "commercial/skills/deal-desk",
+        "commercial/skills/commercial-forecaster",
+        "commercial/skills/rfp-responder",
+        "commercial/skills/pricing-strategist",
+        "marketing-skill/skills",
+        "business-growth/skills",
+    ],
+    "LegalAgent": [
+        "c-level-advisor/skills/general-counsel-advisor",
+        "ra-qm-team/skills/gdpr-dsgvo-expert",
+        "ra-qm-team/skills/soc2-compliance",
+        "ra-qm-team/skills/information-security-manager-iso27001",
+        "ra-qm-team/skills/isms-audit-expert",
+    ],
+    "FinanceAgent": [
+        "c-level-advisor/skills/cfo-advisor",
+        "finance/skills/financial-analyst",
+        "finance/skills/saas-metrics-coach",
+        "finance/skills/business-investment-advisor",
+    ],
+    "ExecutionAgent": [
+        "engineering/autoresearch-agent",
+        "engineering/caveman",
+        "engineering/grill-me",
+        "engineering/grill-with-docs",
+        "engineering/write-a-skill",
+        "c-level-advisor/skills/decision-logger",
+    ],
+    # ── Standalone Agents ────────────────────────────────────────────
     "ProductManagerAgent": [
         "c-level-advisor/skills/cpo-advisor",
         "product-team",
