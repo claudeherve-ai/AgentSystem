@@ -127,6 +127,7 @@ class Orchestrator:
         self._memory_store = MEMORY_STORE
         self._active_session_id = self._memory_store.get_active_session_id()
         self._conversation_session = AgentSession(session_id=self._active_session_id)
+        self._creating: set[str] = set()  # Track agents being created to break circular handoffs
 
     def _get_model_client(self) -> OpenAIChatCompletionClient:
         if self._model_client is None:
@@ -140,57 +141,91 @@ class Orchestrator:
             return None
 
         if name not in self._agents:
-            # Build augmented instructions
-            instructions = registration.system_message
+            # Detect and break circular handoff dependencies
+            if name in self._creating:
+                logger.warning("Circular handoff detected for %s — deferring", name)
+                return None
+            self._creating.add(name)
+
             try:
-                from skills.claude_skills_integration import build_skill_context_for_agent
-                skill_ctx = build_skill_context_for_agent(name)
-                if skill_ctx:
-                    instructions = instructions + "\n" + skill_ctx
-                    logger.info("Augmented %s with claude-skills context", name)
-            except Exception:
-                pass
+                # Build augmented instructions
+                instructions = registration.system_message
+                try:
+                    from skills.claude_skills_integration import build_skill_context_for_agent
+                    skill_ctx = build_skill_context_for_agent(name)
+                    if skill_ctx:
+                        instructions = instructions + "\n" + skill_ctx
+                        logger.info("Augmented %s with claude-skills context", name)
+                except Exception:
+                    pass
 
-            # Build tool list: base capabilities + agent-specific tools + handoff agents
-            tools = list(BASE_CAPABILITY_TOOLS) + list(registration.tools)
+                # Build tool list: base capabilities + agent-specific tools + handoff agents
+                tools = list(BASE_CAPABILITY_TOOLS) + list(registration.tools)
 
-            # Add handoff agents as tools
-            handoff_count = 0
-            for handoff_name in registration.handoff_agents:
-                if handoff_name == name:
-                    continue
-                handoff_agent = self._get_or_create_agent(handoff_name)
-                if handoff_agent is not None:
-                    hreg = self._registrations.get(handoff_name)
-                    tools.append(
-                        handoff_agent.as_tool(
-                            name=f"call_{handoff_name}",
-                            description=f"Delegate to {handoff_name}: {hreg.description if hreg else ''}",
-                            arg_name="request",
-                            arg_description=f"Full task description for {handoff_name}",
+                # Add handoff agents as tools — skip if circular
+                handoff_count = 0
+                pending_handoffs = []
+                for handoff_name in registration.handoff_agents:
+                    if handoff_name == name:
+                        continue
+                    if handoff_name in self._creating:
+                        # Circular — add to pending, resolve after agent is built
+                        pending_handoffs.append(handoff_name)
+                        continue
+                    handoff_agent = self._get_or_create_agent(handoff_name)
+                    if handoff_agent is not None:
+                        hreg = self._registrations.get(handoff_name)
+                        tools.append(
+                            handoff_agent.as_tool(
+                                name=f"call_{handoff_name}",
+                                description=f"Delegate to {handoff_name}: {hreg.description if hreg else ''}",
+                                arg_name="request",
+                                arg_description=f"Full task description for {handoff_name}",
+                            )
                         )
+                        handoff_count += 1
+
+                if handoff_count > 0:
+                    instructions += (
+                        f"\n\n## INTER-AGENT HANDOFF\n"
+                        f"You can call these agents for specialized help:\n" +
+                        "\n".join(f"  - call_{h} — delegate work to {h}"
+                                  for h in registration.handoff_agents
+                                  if h != name and h not in pending_handoffs) +
+                        "\nUse handoffs when the task spans another agent's expertise. "
+                        "Always synthesize their output into a coherent final response."
                     )
-                    handoff_count += 1
 
-            if handoff_count > 0:
-                instructions += (
-                    f"\n\n## INTER-AGENT HANDOFF\n"
-                    f"You can call these agents for specialized help:\n" +
-                    "\n".join(f"  - call_{h} — delegate work to {h}"
-                              for h in registration.handoff_agents if h != name) +
-                    "\nUse handoffs when the task spans another agent's expertise. "
-                    "Always synthesize their output into a coherent final response."
+                self._agents[name] = Agent(
+                    name=registration.name,
+                    description=registration.description or f"Agent: {registration.name}",
+                    client=self._get_model_client(),
+                    instructions=instructions,
+                    tools=tools,
+                    default_options=get_default_agent_options(),
                 )
-                logger.info("Agent %s has %d handoff agents", name, handoff_count)
 
-            self._agents[name] = Agent(
-                name=registration.name,
-                description=registration.description or f"Agent: {registration.name}",
-                client=self._get_model_client(),
-                instructions=instructions,
-                tools=tools,
-                default_options=get_default_agent_options(),
-            )
+                # Now resolve pending (circular) handoffs
+                for pending_name in pending_handoffs:
+                    pending_agent = self._agents.get(pending_name)
+                    if pending_agent is not None:
+                        hreg = self._registrations.get(pending_name)
+                        self._agents[name].tools.append(
+                            pending_agent.as_tool(
+                                name=f"call_{pending_name}",
+                                description=f"Delegate to {pending_name}: {hreg.description if hreg else ''}",
+                                arg_name="request",
+                                arg_description=f"Full task description for {pending_name}",
+                            )
+                        )
+                        handoff_count += 1
+                        logger.info("Resolved circular handoff: %s → %s", name, pending_name)
+
+                if handoff_count > 0:
+                    logger.info("Agent %s has %d handoff agents", name, handoff_count)
+
+            finally:
+                self._creating.discard(name)
         return self._agents[name]
 
     def _build_orchestrator_instructions(self) -> str:
