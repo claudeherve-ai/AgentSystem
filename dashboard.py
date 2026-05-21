@@ -145,10 +145,10 @@ def render_command_center():
     st.markdown("### Quick Agent Access")
     cols = st.columns(6)
     priority_agents = [
-        "EmailAgent", "CalendarAgent", "ResearchAgent", "SeniorDevAgent",
-        "SoftwareArchitectAgent", "FinanceAgent", "LegalAdvisorAgent",
-        "SecurityEngineerAgent", "AIEngineerAgent", "DevOpsAutomatorAgent",
-        "ProductManagerAgent", "GrowthHackerAgent",
+        "EngineeringAgent", "CloudDataAgent", "ExecutionAgent",
+        "RevenueAgent", "FinanceAgent", "LegalAgent",
+        "EmailAgent", "CalendarAgent", "AIEngineerAgent",
+        "SecurityEngineerAgent", "ProductManagerAgent", "BusinessAgent",
     ]
     for i, agent_name in enumerate(priority_agents):
         col_idx = i % 6
