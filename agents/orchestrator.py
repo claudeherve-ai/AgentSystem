@@ -49,6 +49,7 @@ from tools.rag_tools import RAG_TOOLS
 from tools.screen_context import SCREEN_CONTEXT_TOOLS
 from tools.web_fetch import WEB_FETCH_TOOLS
 from tools.web_search import WEB_SEARCH_TOOLS
+from tools.browse_tools import BROWSE_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ logger = logging.getLogger(__name__)
 BASE_CAPABILITY_TOOLS = (
     list(WEB_SEARCH_TOOLS)
     + list(WEB_FETCH_TOOLS)
+    + list(BROWSE_TOOLS)
     + list(FILE_READER_TOOLS)
     + list(CODE_INTERPRETER_TOOLS)
     + list(KNOWLEDGE_BASE_TOOLS)
@@ -249,6 +251,7 @@ class Orchestrator:
             "Use the end-of-day review tool when the user asks to wrap the day, review what got done, preview tomorrow, or plan priorities for tomorrow.\n"
             "Use the draft replies tool when the user asks for draft replies, inbox triage, or help answering important unread mail — it saves drafts to Outlook for manual review.\n"
             "When the request needs current information, vendor docs, news, or anything not in memory, use `web_search` then `web_fetch` to get the actual page text — do not bluff facts.\n"
+            "When `web_fetch` fails because a page is JS-rendered (blank or incomplete), use `browse_fetch` instead — it runs a real Chrome browser to extract content from modern SPAs, Microsoft docs, Azure portals, and any React/Vue/Angular page.\n"
             "When the user points you at a local file or folder (PDF, DOCX, XLSX, JSON, log, code), use `read_file` / `list_dir` / `search_in_file` to inspect it before answering.\n"
             "When the request requires actually computing something, transforming data, or generating output, use `run_python` in the workspace and inspect the actual output before claiming success.\n"
             "When the user asks you to remember a document or web page for later, use `kb_index`; when they ask 'have we seen this before?' or want to recall research, use `kb_search`.\n"
@@ -278,7 +281,8 @@ class Orchestrator:
     def _get_or_create_coordinator(self) -> Agent:
         if self._coordinator is None:
             specialist_tools = (
-                list(MEMORY_TOOLS)
+                list(BROWSE_TOOLS)
+                + list(MEMORY_TOOLS)
                 + list(DAILY_BRIEFING_TOOLS)
                 + list(END_OF_DAY_TOOLS)
                 + list(DRAFT_REPLY_TOOLS)

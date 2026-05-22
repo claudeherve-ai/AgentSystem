@@ -6,10 +6,27 @@
 
 FROM python:3.12-slim-bookworm
 
-# Install system dependencies
+# Install system dependencies (shared libs for Chromium)
 RUN apt-get update && apt-get install -y \
     curl unzip git build-essential \
+    libasound2 libatk-bridge2.0-0 libatk1.0-0 \
+    libcups2 libdrm2 libgbm1 libnss3 libxcomposite1 \
+    libxdamage1 libxkbcommon0 libxrandr2 xdg-utils \
+    fonts-liberation libu2f-udev libvulkan1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22.x (for browse CLI)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install browse.sh CLI (browser tools for agents)
+RUN npm install -g browse
+
+# Install Chromium via Playwright (avoids Debian Bookworm snap-wrapper issue)
+RUN npx playwright install chromium
+# browse_tools.py auto-discovers Playwright Chromium path at runtime
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # Install Bun (for GStack workflow)
 ENV BUN_INSTALL="/root/.bun"
