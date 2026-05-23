@@ -23,6 +23,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # Install browse.sh CLI (browser tools for agents)
 RUN npm install -g browse
 
+# Install xurl CLI (official X/Twitter API client)
+RUN curl -fsSL https://raw.githubusercontent.com/xdevplatform/xurl/main/install.sh | bash
+
 # Install Chromium via Playwright (avoids Debian Bookworm snap-wrapper issue)
 RUN npx playwright install chromium
 # browse_tools.py auto-discovers Playwright Chromium path at runtime

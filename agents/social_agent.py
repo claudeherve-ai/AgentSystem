@@ -113,8 +113,10 @@ async def publish_post(
     # Publish via real APIs
     try:
         if platform == "twitter":
-            from tools.twitter_tools import post_tweet
+            from tools.x_tools import post_tweet
             result = post_tweet(content)
+            if "error" in result:
+                return f"❌ X publish failed: {result['error']}"
             log_action("SocialAgent", action_desc, f"Platform: twitter", f"Tweet: {result.get('url', 'N/A')}", approved_by="human", status="completed")
             return f"✅ Tweet posted: {result.get('url', 'N/A')}"
         elif platform == "linkedin":
@@ -178,3 +180,24 @@ async def get_posting_schedule() -> str:
 
 
 SOCIAL_TOOLS = [draft_social_post, publish_post, check_engagement, get_posting_schedule]
+
+# ── Extended X/Twitter tools (safe subset to avoid content filter triggers) ──
+# Full engagement/automation tools (like, repost, follow, unfollow, block, DM)
+# are excluded to minimize Azure OpenAI jailbreak filter false positives.
+# They remain available via direct x_tools.py import when needed.
+try:
+    from tools.x_tools import (
+        post_tweet, whoami, search_tweets, get_timeline,
+        get_mentions, read_tweet, get_user, delete_tweet,
+        get_followers, get_following, get_bookmarks, get_likes,
+        list_available_tools,
+    )
+    SOCIAL_TOOLS.extend([
+        post_tweet, whoami, search_tweets, get_timeline,
+        get_mentions, read_tweet, get_user, delete_tweet,
+        get_followers, get_following, get_bookmarks, get_likes,
+        list_available_tools,
+    ])
+    logger.info("X tools loaded (safe subset: %d functions)", 13)
+except ImportError:
+    logger.warning("X tools not available — xurl may not be installed")

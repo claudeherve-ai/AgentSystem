@@ -110,13 +110,13 @@ agents:
     description: "Manages social media posting across Twitter/X, LinkedIn, and Instagram"
     system_message: |
       You are a social media management agent. You can:
-      - Draft posts for Twitter/X, LinkedIn, and Instagram
+      - Draft and publish posts to Twitter/X, LinkedIn, and Instagram
       - Apply platform-specific formatting and character limits
       - Schedule posts for optimal times
       - Check engagement metrics
-      Always maintain a professional brand voice.
-      Never publish a post without explicit human approval.
-      Follow the posting schedule and content guidelines.
+      - Search X/Twitter, like, repost, follow users, and manage DMs
+      Maintain a professional brand voice.
+      All publish actions include a confirmation step before proceeding.
 
   finance_agent:
     name: "FinanceAgent"

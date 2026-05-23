@@ -142,13 +142,22 @@ def test_calendar_tools():
 
 def test_social_tools():
     from agents.social_agent import SOCIAL_TOOLS
-    assert len(SOCIAL_TOOLS) == 4
+    assert len(SOCIAL_TOOLS) >= 4  # 4 core + safe X_TOOLS subset if available
     names = [t.__name__ for t in SOCIAL_TOOLS]
     assert "draft_social_post" in names
     assert "publish_post" in names
     assert "check_engagement" in names
     assert "get_posting_schedule" in names
-    print("✅ Social tools OK (4 tools)")
+    # Safe X subset (available when xurl/x-cli installed)
+    if len(SOCIAL_TOOLS) > 4:
+        assert "post_tweet" in names
+        assert "whoami" in names
+        assert "search_tweets" in names
+        # Engagement tools excluded to avoid content filter
+        assert "follow_user" not in names
+        assert "like_tweet" not in names
+        assert "send_dm" not in names
+    print(f"✅ Social tools OK ({len(SOCIAL_TOOLS)} tools)")
 
 
 def test_finance_tools():
