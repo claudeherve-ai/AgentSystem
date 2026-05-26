@@ -21,6 +21,8 @@ uvicorn[standard]>=0.30.0
 # ── Boil-the-Ocean capability tools (web/file/code/KB) ─────────────────────
 # httpx is already a transitive dep of msgraph-sdk; pin it for web_search/web_fetch.
 httpx>=0.27.0
+# Web search backends
+ddgs>=9.0.0
 # Soft deps — file_reader and web_fetch lazy-import these and degrade gracefully:
 markdownify>=0.11.6
 beautifulsoup4>=4.12.0

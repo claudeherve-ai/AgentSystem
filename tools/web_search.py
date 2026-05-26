@@ -1,16 +1,18 @@
 """
-Web search tool — DuckDuckGo HTML scrape (no API key required).
+Web search tool — multi-backend for reliability.
 
-Provides a single function `web_search(query, max_results)` that any specialist
-agent or the orchestrator can call to get current information.
+Primary:    ddgs (DuckDuckGo via ddgs library, handles rate-limiting/IP rotation)
+Fallback:   DuckDuckGo HTML scraping (current approach, works on non-blocked IPs)
+Optional:   Bing Web Search API (if BING_SEARCH_API_KEY env var is set)
 
-Falls back gracefully when the network is unreachable or when DuckDuckGo
-changes its HTML; never raises out of the tool.
+Any specialist agent or the orchestrator can call this to get current information.
+Falls back gracefully through backends; never raises out of the tool.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Annotated
 from urllib.parse import quote_plus, unquote, urlparse, parse_qs
@@ -27,6 +29,8 @@ _USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 _DUCKDUCKGO_HTML = "https://html.duckduckgo.com/html/"
+_BING_API = "https://api.bing.microsoft.com/v7.0/search"
+
 _LINK_RE = re.compile(
     r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
     re.IGNORECASE | re.DOTALL,
@@ -58,18 +62,32 @@ def _resolve_redirect(href: str) -> str:
     return href
 
 
-async def web_search(
-    query: Annotated[str, Field(description="The search query")],
-    max_results: Annotated[int, Field(description="Maximum number of results to return (1-10)")] = 5,
-) -> str:
-    """
-    Search the public web via DuckDuckGo and return a Markdown list of results.
+# ── Backend 1: ddgs library ────────────────────────────────────────────────
 
-    Returns up to `max_results` items; each item has a title, URL, and a short
-    snippet. If the search fails, returns a clear error string instead of raising.
-    """
-    audit_id = audit_log("WebSearch.search", "started", {"query": query, "max_results": max_results})
-    max_results = max(1, min(10, int(max_results or 5)))
+async def _search_ddgs(query: str, max_results: int) -> list[dict]:
+    """Search using the ddgs library (DuckDuckGo, more robust)."""
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        logger.debug("ddgs library not installed, skipping ddgs backend")
+        return []
+
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=max_results))
+        return [
+            {"title": r.get("title", ""), "url": r.get("href", ""), "snippet": r.get("body", "")}
+            for r in results
+        ]
+    except Exception as exc:
+        logger.warning("ddgs search failed: %s", exc)
+        return []
+
+
+# ── Backend 2: DuckDuckGo HTML scraping ────────────────────────────────────
+
+async def _search_ddg_html(query: str) -> list[dict]:
+    """Search using DuckDuckGo HTML scraping (original approach)."""
     try:
         async with httpx.AsyncClient(
             timeout=15.0,
@@ -86,37 +104,116 @@ async def web_search(
         links = _LINK_RE.findall(html)
         snippets = _SNIPPET_RE.findall(html)
 
-        if not links:
-            audit_log("WebSearch.search", "no_results", {"query": query}, parent_id=audit_id)
-            return f"No web results for: {query!r}. Try a different query or check connectivity."
-
-        lines = [f"# Web search results: {query}"]
-        for i, (href, title_html) in enumerate(links[:max_results], start=1):
+        results = []
+        for i, (href, title_html) in enumerate(links):
             url = _resolve_redirect(href)
             title = _clean_text(title_html) or url
             snippet = ""
-            if i - 1 < len(snippets):
-                snippet = _clean_text(snippets[i - 1])
-            lines.append(f"\n**{i}. {title}**")
-            lines.append(f"<{url}>")
-            if snippet:
-                lines.append(snippet[:500])
-        result = "\n".join(lines)
+            if i < len(snippets):
+                snippet = _clean_text(snippets[i])
+            results.append({"title": title, "url": url, "snippet": snippet})
+        return results
+    except Exception as exc:
+        logger.warning("DDG HTML search failed: %s", exc)
+        return []
+
+
+# ── Backend 3: Bing Web Search API (optional) ──────────────────────────────
+
+async def _search_bing(query: str, max_results: int) -> list[dict]:
+    """Search using Bing Web Search API (requires BING_SEARCH_API_KEY env var)."""
+    api_key = os.environ.get("BING_SEARCH_API_KEY", "").strip()
+    if not api_key:
+        return []
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                _BING_API,
+                params={"q": query, "count": max_results, "mkt": "en-US"},
+                headers={"Ocp-Apim-Subscription-Key": api_key},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        results = []
+        for page in data.get("webPages", {}).get("value", [])[:max_results]:
+            results.append({
+                "title": page.get("name", ""),
+                "url": page.get("url", ""),
+                "snippet": page.get("snippet", ""),
+            })
+        return results
+    except Exception as exc:
+        logger.warning("Bing search failed: %s", exc)
+        return []
+
+
+# ── Main search function ───────────────────────────────────────────────────
+
+async def web_search(
+    query: Annotated[str, Field(description="The search query")],
+    max_results: Annotated[int, Field(description="Maximum number of results to return (1-10)")] = 5,
+) -> str:
+    """
+    Search the public web and return a Markdown list of results.
+
+    Tries multiple backends in order:
+      1. ddgs library (DuckDuckGo, handles rate-limiting)
+      2. DuckDuckGo HTML scraping (original approach)
+      3. Bing Web Search API (if BING_SEARCH_API_KEY env var is set)
+
+    Returns up to `max_results` items; each item has a title, URL, and a short
+    snippet. If all backends fail, returns a clear error string instead of raising.
+    """
+    audit_id = audit_log("WebSearch.search", "started", {"query": query, "max_results": max_results})
+    max_results = max(1, min(10, int(max_results or 5)))
+    backends_tried = []
+
+    # Try backends in order
+    for backend_name, backend_fn in [
+        ("ddgs", _search_ddgs),
+        ("ddg_html", _search_ddg_html),
+        ("bing", _search_bing),
+    ]:
+        try:
+            results = await backend_fn(query, max_results)
+            if results:
+                backends_tried.append(backend_name)
+                break
+            backends_tried.append(f"{backend_name}(empty)")
+        except Exception as exc:
+            logger.warning("%s backend raised: %s", backend_name, exc)
+            backends_tried.append(f"{backend_name}(error)")
+
+    if not results:
         audit_log(
-            "WebSearch.search",
-            "completed",
-            {"query": query, "result_count": min(len(links), max_results)},
+            "WebSearch.search", "no_results",
+            {"query": query, "backends": backends_tried},
             parent_id=audit_id,
         )
-        return result
-    except httpx.RequestError as exc:
-        logger.warning("Web search network error: %s", exc)
-        audit_log("WebSearch.search", "network_error", {"error": str(exc)}, parent_id=audit_id)
-        return f"Web search failed (network): {exc!s}. Use a different tool or ask the user to provide source material."
-    except Exception as exc:  # noqa: BLE001 — never raise out of a tool
-        logger.exception("Web search failed")
-        audit_log("WebSearch.search", "error", {"error": str(exc)}, parent_id=audit_id)
-        return f"Web search failed: {exc!s}"
+        return (
+            f"No web results for: {query!r}. "
+            f"Tried: {', '.join(backends_tried)}. "
+            "Try a different query or check connectivity."
+        )
+
+    # Format results as Markdown
+    lines = [f"# Web search results: {query}"]
+    for i, r in enumerate(results[:max_results], start=1):
+        lines.append(f"\n**{i}. {r['title']}**")
+        lines.append(f"<{r['url']}>")
+        if r["snippet"]:
+            lines.append(r["snippet"][:500])
+
+    result = "\n".join(lines)
+    audit_log(
+        "WebSearch.search",
+        "completed",
+        {"query": query, "result_count": len(results[:max_results]), "backend": backends_tried[0]},
+        parent_id=audit_id,
+    )
+    return result
 
 
 WEB_SEARCH_TOOLS = [web_search]
