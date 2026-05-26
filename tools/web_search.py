@@ -86,7 +86,7 @@ async def _search_ddgs(query: str, max_results: int) -> list[dict]:
 
 # ── Backend 2: DuckDuckGo HTML scraping ────────────────────────────────────
 
-async def _search_ddg_html(query: str) -> list[dict]:
+async def _search_ddg_html(query: str, max_results: int = 10) -> list[dict]:
     """Search using DuckDuckGo HTML scraping (original approach)."""
     try:
         async with httpx.AsyncClient(
@@ -106,6 +106,8 @@ async def _search_ddg_html(query: str) -> list[dict]:
 
         results = []
         for i, (href, title_html) in enumerate(links):
+            if i >= max_results:
+                break
             url = _resolve_redirect(href)
             title = _clean_text(title_html) or url
             snippet = ""
