@@ -10,7 +10,7 @@ system:
 
 model:
   provider: "azure_openai"         # azure_openai | openai | ollama
-  deployment: "gpt-5.4-mini"
+  deployment: "gpt-5.4"
   temperature: 0.3                 # Low for reliability
   max_tokens: 4096
 
