@@ -17,8 +17,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tools import docker_sandbox as sbx
 from tools.docker_sandbox import SandboxResult, docker_available, run_in_sandbox
 
-requires_docker = pytest.mark.skipif(
-    not docker_available(), reason="Docker daemon not available"
+_SANDBOX_IMAGE = "python:3.12-slim"
+
+
+def _sandbox_image_ready() -> bool:
+    """True only when Docker is reachable AND the sandbox image is present.
+
+    The live execution tests need the image locally; ``run_in_sandbox`` does not
+    auto-pull by default. Probing here (instead of only checking the daemon)
+    keeps the suite green on machines that have Docker but have not pulled the
+    image, while still running the tests for real wherever the image exists
+    (local dev, and CI after the pre-pull step).
+    """
+    if not docker_available():
+        return False
+    try:
+        return asyncio.run(sbx.image_available(_SANDBOX_IMAGE))
+    except Exception:
+        return False
+
+
+requires_sandbox = pytest.mark.skipif(
+    not _sandbox_image_ready(),
+    reason=f"Docker daemon or sandbox image '{_SANDBOX_IMAGE}' not available",
 )
 
 
@@ -74,7 +95,7 @@ def test_docker_available_returns_bool():
 
 
 # ─── Live execution (skipped when Docker absent) ─────────────────────────────
-@requires_docker
+@requires_sandbox
 def test_run_in_sandbox_happy_path():
     result = asyncio.run(run_in_sandbox("print(40 + 2)", timeout=30))
     assert result.ok, f"expected ok, got: {result}"
@@ -84,7 +105,7 @@ def test_run_in_sandbox_happy_path():
     print("✅ Sandbox executes trivial code")
 
 
-@requires_docker
+@requires_sandbox
 def test_run_in_sandbox_network_is_blocked():
     code = (
         "import socket\n"
@@ -98,7 +119,7 @@ def test_run_in_sandbox_network_is_blocked():
     print("✅ Sandbox blocks network egress")
 
 
-@requires_docker
+@requires_sandbox
 def test_run_in_sandbox_times_out():
     result = asyncio.run(run_in_sandbox("while True:\n    pass", timeout=3))
     assert result.timed_out is True

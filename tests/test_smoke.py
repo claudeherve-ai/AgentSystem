@@ -707,8 +707,15 @@ def test_critic_agent_module():
 
 
 # ─── End-to-end functional checks for new tools (offline-safe) ─────────────
-def test_code_interpreter_runs_python():
-    """run_python should execute a trivial snippet in the workspace sandbox."""
+def test_code_interpreter_runs_python(monkeypatch):
+    """run_python should execute a trivial snippet (offline-safe).
+
+    Force subprocess mode so this stays deterministic and Docker-independent:
+    the section is labelled offline-safe, and the Docker execution path is
+    covered separately by the live tests in test_docker_sandbox.py. Config is
+    read fresh from the environment (not cached), so the env override applies.
+    """
+    monkeypatch.setenv("CODE_SANDBOX_MODE", "subprocess")
     from tools.code_interpreter import run_python
 
     result = asyncio.run(run_python("print(2 + 3)"))
