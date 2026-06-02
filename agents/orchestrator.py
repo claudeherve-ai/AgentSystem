@@ -57,6 +57,7 @@ from tools.screen_context import SCREEN_CONTEXT_TOOLS
 from tools.web_fetch import WEB_FETCH_TOOLS
 from tools.web_search import WEB_SEARCH_TOOLS
 from tools.browse_tools import BROWSE_TOOLS
+from toolkits import POWER_TOOLS_BASE
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ BASE_CAPABILITY_TOOLS = (
     + list(MCP_DOCS_TOOLS)
     + list(MCP_GITHUB_TOOLS)
     + list(MCP_SEQUENTIAL_THINKING_TOOLS)
+    + list(POWER_TOOLS_BASE)
 )
 
 
