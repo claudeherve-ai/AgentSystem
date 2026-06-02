@@ -2,7 +2,7 @@
 AgentSystem — Health Routes
 """
 from fastapi import APIRouter
-from api.main import get_orchestrator
+from api.dependencies import get_orchestrator
 
 router = APIRouter()
 

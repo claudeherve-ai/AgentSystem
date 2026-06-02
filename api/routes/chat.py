@@ -1,7 +1,7 @@
 """
 AgentSystem — Chat Routes
 
-Main conversational interface for interacting with the 38-agent orchestrator.
+Main conversational interface for interacting with the multi-agent orchestrator.
 Supports streaming and synchronous modes.
 """
 import asyncio
@@ -12,7 +12,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from api.main import get_orchestrator
+from api.dependencies import get_orchestrator
+from config import MissingModelCredentialsError, get_model_config
 
 logger = logging.getLogger("agentsystem.api.chat")
 router = APIRouter()
@@ -69,15 +70,33 @@ async def chat(request: ChatRequest):
             agents_used=[],  # The coordinator determines which agents are called
         )
 
+    except HTTPException:
+        # Preserve intentional HTTP errors (e.g. 404 unknown agent).
+        raise
+    except MissingModelCredentialsError as e:
+        logger.warning("Chat unavailable — no LLM provider configured: %s", e)
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error("Chat error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal error routing chat request.")
 
 
 @router.post("/stream")
 async def chat_stream(request: ChatRequest):
     """Stream a chat response (SSE format)."""
     orch = get_orchestrator()
+
+    # Fail fast with a real HTTP status when no provider is usable, rather than
+    # leaking an error inside a 200 OK event stream.
+    model_cfg = get_model_config()
+    if not model_cfg.has_any_model_credentials:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "No LLM provider is configured. Set AZURE_OPENAI_ENDPOINT + "
+                "AZURE_OPENAI_API_KEY, or OPENAI_API_KEY, in your .env."
+            ),
+        )
 
     async def event_generator():
         try:
@@ -90,7 +109,9 @@ async def chat_stream(request: ChatRequest):
                 await asyncio.sleep(0.05)
             yield "data: [DONE]\n\n"
         except Exception as e:
-            yield f"data: [ERROR] {e}\n\n"
+            logger.error("Chat stream error: %s", e)
+            yield "data: [ERROR] Internal error generating response.\n\n"
+            yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         event_generator(),

@@ -28,38 +28,25 @@ agents:
       2. Use remembered profile facts and recent session context before asking follow-up questions.
       3. Receive inbound events (emails, calendar notifications, user requests)
        4. Classify the intent and route to the correct subagent:
-         - EmailAgent: email reading, drafting, sending. FOR ANY email-related request (read, check, show, list, inbox, mail), route to EmailAgent IMMEDIATELY — do NOT respond yourself.
-         - CalendarAgent: appointments, scheduling, conflicts
-         - SocialAgent: social media posting, engagement
-         - FinanceAgent: expenses, budgets, invoices, reports
-         - BusinessAgent: customers, CRM, proposals, follow-ups
-         - ProblemSolverAgent: debugging, error analysis, investigation
-         - AIEngineerAgent: AI/ML design, LLM integration, prompts
-         - EnterpriseIntegrationAgent: system integrations, API mapping
-         - GrowthHackerAgent: growth experiments, funnels, viral loops
-         - LegalAdvisorAgent: legal docs, compliance, contracts
-         - SeniorDevAgent: code review, implementation, CSS, frontend
-         - SoftwareArchitectAgent: system design, DDD, ADRs, trade-offs
-         - DataEngineerAgent: data pipelines, lakehouse, Spark, dbt
-         - UXArchitectAgent: design systems, layouts, accessibility
-         - ProductManagerAgent: PRDs, roadmaps, user stories, metrics
-         - ProjectManagerAgent: project plans, risks, status reports
-         - ProposalStrategistAgent: win themes, RFP, executive summaries
-         - DealStrategistAgent: MEDDPICC, pipeline, competitive positioning
-         - OptimizationArchitectAgent: API perf, cost, circuit breakers
-         - DevOpsAutomatorAgent: CI/CD, IaC, containers, monitoring
-         - AzureSolutionArchitectAgent: Azure, hybrid, and multi-cloud architecture, migration, troubleshooting
-         - DatabricksSpecialistAgent: Databricks architecture, Unity Catalog, Spark, Jobs, Pipelines, Apps, CLI troubleshooting
-         - LegalDocReviewAgent: legal document review, contract analysis, clause risk, version comparison
-         - RealEstateAgent: property analysis, CMA, offer strategy, investment analysis
-         - InvestmentResearcherAgent: investment research, due diligence, portfolio analysis, valuation
-         - ProjectShepherdAgent: cross-functional project coordination, timeline, stakeholder alignment
+         There are exactly 18 registered subagents. Route ONLY to these — never invent or hand off to any agent not in this list:
+         - EmailAgent: email reading, drafting, sending via Microsoft Graph. FOR ANY email-related request (read, check, show, list, inbox, mail), route to EmailAgent IMMEDIATELY — do NOT respond yourself.
+         - CalendarAgent: appointments, scheduling, conflict detection via Microsoft Graph
+         - EmailIntelAgent: email thread analysis, action items, participant mapping, decision tracking
+         - SocialAgent: social media posting, engagement across platforms
+         - EngineeringAgent: full-stack engineering — software architecture, ADRs, code review, backend systems, frontend/UX, design systems, performance optimization
+         - CloudDataAgent: Azure/multi-cloud architecture, Databricks, data pipelines (medallion), DevOps, CI/CD, IaC, monitoring, migration & troubleshooting
+         - ExecutionAgent: research → code → debug → critique loop, multi-step web research with citations, document analysis
+         - AIEngineerAgent: AI/ML design, LLM integration, model deployment, prompt engineering
          - SecurityEngineerAgent: threat modeling, secure code review, vulnerability assessment
-         - FrontendDevAgent: React/Vue/Angular UI, responsive design, accessibility, performance
-         - BackendArchitectAgent: system design, database architecture, API design, cloud infra
-         - TaxStrategistAgent: tax optimization, entity structuring, compliance, estimated taxes
-         - EmailIntelAgent: email thread analysis, action items, participant mapping, decisions
-         - SalesProposalAgent: win themes, executive summaries, RFP analysis, competitive positioning
+         - EnterpriseIntegrationAgent: enterprise system integrations, API orchestration, B2B connectivity
+         - RevenueAgent: deal strategy (MEDDPICC), proposals, RFP analysis, sales, growth experiments, funnel optimization
+         - FinanceAgent: expenses, budgets, invoices, financial reports, tax strategy, investment research & due diligence
+         - LegalAgent: legal docs, contracts, compliance (GDPR/SOC2/HIPAA/CCPA), document review & comparison
+         - BusinessAgent: customers, CRM, business proposals, follow-ups
+         - RealEstateAgent: property analysis, CMA, offer strategy, real-estate investment analysis
+         - ProductManagerAgent: PRDs, roadmaps, user stories, go-to-market, metrics
+         - ProjectManagerAgent: project plans, risks, status reports, timelines
+         - ProjectShepherdAgent: cross-functional project coordination, timeline, stakeholder alignment
        5. Collect results and decide next actions
        6. Use briefing, end-of-day review, draft-reply, and memory tools proactively for daily planning, inbox triage, urgent unread email reviews, wrap-up reports, reminders, and profile context
        7. Treat scheduler events (morning_briefing_due, end_of_day_due, meeting_soon) as proactive prompts: run the matching tool or produce a short prep note — never ignore them

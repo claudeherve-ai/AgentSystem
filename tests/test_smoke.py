@@ -46,26 +46,28 @@ def test_orchestrator_registration():
     orchestrator = build_orchestrator()
     status = orchestrator.status()
 
-    assert status["agent_count"] >= 36
-    assert "EmailAgent" in status["registered_agents"]
-    assert "CalendarAgent" in status["registered_agents"]
-    assert "DevOpsAutomatorAgent" in status["registered_agents"]
-    assert "AzureSolutionArchitectAgent" in status["registered_agents"]
-    assert "DatabricksSpecialistAgent" in status["registered_agents"]
-    assert "ResearchAgent" in status["registered_agents"]
-    assert "CodeExecutorAgent" in status["registered_agents"]
-    assert "DocumentAnalystAgent" in status["registered_agents"]
-    assert "CriticAgent" in status["registered_agents"]
-    assert "LegalDocReviewAgent" in status["registered_agents"]
-    assert "RealEstateAgent" in status["registered_agents"]
-    assert "InvestmentResearcherAgent" in status["registered_agents"]
-    assert "ProjectShepherdAgent" in status["registered_agents"]
-    assert "SecurityEngineerAgent" in status["registered_agents"]
-    assert "FrontendDevAgent" in status["registered_agents"]
-    assert "BackendArchitectAgent" in status["registered_agents"]
-    assert "TaxStrategistAgent" in status["registered_agents"]
-    assert "EmailIntelAgent" in status["registered_agents"]
-    assert "SalesProposalAgent" in status["registered_agents"]
+    assert status["agent_count"] == 18
+    for expected in (
+        "AIEngineerAgent",
+        "BusinessAgent",
+        "CalendarAgent",
+        "CloudDataAgent",
+        "EmailAgent",
+        "EmailIntelAgent",
+        "EngineeringAgent",
+        "EnterpriseIntegrationAgent",
+        "ExecutionAgent",
+        "FinanceAgent",
+        "LegalAgent",
+        "ProductManagerAgent",
+        "ProjectManagerAgent",
+        "ProjectShepherdAgent",
+        "RealEstateAgent",
+        "RevenueAgent",
+        "SecurityEngineerAgent",
+        "SocialAgent",
+    ):
+        assert expected in status["registered_agents"], f"missing {expected}"
     assert isinstance(status["active_session_id"], str)
     assert status["active_session_id"]
     assert status["remembered_facts"] >= 0
@@ -79,13 +81,13 @@ def test_model_option_compatibility():
     options = get_default_agent_options()
     model_cfg = get_model_config()
 
-    if model_cfg.resolved_model.lower().startswith("gpt-5"):
+    if model_cfg.effective_model.lower().startswith("gpt-5"):
         assert "temperature" not in options
     else:
         assert options["temperature"] == model_cfg.temperature
 
     assert options["max_tokens"] == model_cfg.max_tokens
-    assert options["allow_multiple_tool_calls"] is False
+    assert options["allow_multiple_tool_calls"] is True
     print("✅ Model options OK")
 
 
@@ -122,22 +124,22 @@ def test_audit():
 
 def test_email_tools():
     from agents.email_agent import EMAIL_TOOLS
-    assert len(EMAIL_TOOLS) == 3
+    assert len(EMAIL_TOOLS) == 6
     names = [t.__name__ for t in EMAIL_TOOLS]
     assert "read_inbox" in names
-    assert "draft_reply" in names
-    assert "send_email" in names
-    print("✅ Email tools OK (3 tools)")
+    assert "check_inbox" in names
+    assert "link_account" in names
+    print("✅ Email tools OK (6 tools)")
 
 
 def test_calendar_tools():
     from agents.calendar_agent import CALENDAR_TOOLS
-    assert len(CALENDAR_TOOLS) == 3
+    assert len(CALENDAR_TOOLS) == 5
     names = [t.__name__ for t in CALENDAR_TOOLS]
     assert "get_upcoming_events" in names
     assert "create_event" in names
     assert "check_conflicts" in names
-    print("✅ Calendar tools OK (3 tools)")
+    print("✅ Calendar tools OK (5 tools)")
 
 
 def test_social_tools():

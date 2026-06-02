@@ -78,7 +78,7 @@ EXPOSE 8501 8080
 
 # Labels
 LABEL org.opencontainers.image.source="https://github.com/claudeherve-ai/AgentSystem"
-LABEL org.opencontainers.image.description="AgentSystem Executive Hive — 36-Agent Orchestrator + 714 Claude-Skills"
+LABEL org.opencontainers.image.description="AgentSystem — Multi-Agent Enterprise Orchestrator with Claude Skills"
 LABEL org.opencontainers.image.title="AgentSystem"
 
 # Health check

@@ -16,7 +16,12 @@ from agent_framework.openai import OpenAIChatCompletionClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import get_agent_configs, get_model_config, get_system_config
+from config import (
+    MissingModelCredentialsError,
+    get_agent_configs,
+    get_model_config,
+    get_system_config,
+)
 from tools.audit import log_action
 from tools.code_interpreter import CODE_INTERPRETER_TOOLS
 from tools.critique import CRITIQUE_TOOLS
@@ -80,29 +85,52 @@ class AgentRegistration:
 
 
 def create_model_client() -> OpenAIChatCompletionClient:
-    model_cfg = get_model_config()
-    model_name = model_cfg.resolved_model
+    """Build the chat-completion client for whichever provider has usable creds.
 
-    if model_cfg.provider == "azure_openai":
-        if not model_cfg.azure_endpoint or not model_cfg.azure_api_key:
-            raise ValueError(
-                "Azure OpenAI credentials not configured. "
-                "Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY in .env"
-            )
+    Honors the provider configured in ``agents.yaml`` when its credentials are
+    present, but transparently falls back between ``azure_openai`` and ``openai``
+    when the configured provider is missing (or has placeholder) credentials.
+    Raises :class:`MissingModelCredentialsError` only when NEITHER provider is
+    usable, so the API layer can return a clean 503 instead of a raw 500.
+    """
+    model_cfg = get_model_config()
+
+    # Surface, but don't hard-fail on, providers we don't yet support natively.
+    if model_cfg.provider not in ("azure_openai", "openai"):
+        logger.warning(
+            "Model provider %r is not natively supported yet; "
+            "falling back to any configured Azure OpenAI / OpenAI credentials.",
+            model_cfg.provider,
+        )
+
+    if not (model_cfg.has_azure_credentials or model_cfg.has_openai_credentials):
+        raise MissingModelCredentialsError(
+            "No LLM provider is configured. Set AZURE_OPENAI_ENDPOINT + "
+            "AZURE_OPENAI_API_KEY, or OPENAI_API_KEY, in your .env "
+            "(placeholder values like <your-key> are ignored)."
+        )
+
+    provider = model_cfg.effective_provider
+    model_name = model_cfg.effective_model
+
+    if provider != model_cfg.provider:
+        logger.warning(
+            "Configured provider %r lacks usable credentials; "
+            "falling back to %r.",
+            model_cfg.provider,
+            provider,
+        )
+
+    if provider == "azure_openai":
         return OpenAIChatCompletionClient(
             model=model_name,
             azure_endpoint=model_cfg.azure_endpoint,
             api_key=model_cfg.azure_api_key,
             api_version=model_cfg.azure_api_version,
         )
-    elif model_cfg.provider == "openai":
-        if not model_cfg.openai_api_key:
-            raise ValueError("OpenAI API key not configured. Set OPENAI_API_KEY in .env")
-        return OpenAIChatCompletionClient(
-            model=model_name, api_key=model_cfg.openai_api_key,
-        )
-    else:
-        raise ValueError(f"Unsupported model provider: {model_cfg.provider}")
+    return OpenAIChatCompletionClient(
+        model=model_name, api_key=model_cfg.openai_api_key,
+    )
 
 
 def get_default_agent_options() -> dict[str, Any]:
