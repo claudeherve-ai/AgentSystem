@@ -115,23 +115,84 @@ filesystem, etc.). All are **opt-in** and degrade gracefully when unset.
                 │        Orchestrator (router)           │
                 │   agents/orchestrator.py + factory.py  │
                 └───────────────────┬───────────────────┘
-                                    │ routes to one of 18
+                                    │ routes to one of 19
               ┌─────────────────────┼─────────────────────┐
               ▼                     ▼                     ▼
         EmailAgent          EngineeringAgent        FinanceAgent   ...
         CalendarAgent       CloudDataAgent          LegalAgent
-        SocialAgent         SecurityEngineerAgent   RevenueAgent
+        SocialAgent         SecurityEngineerAgent   CodeExecutorAgent
               │                     │                     │
               ▼                     ▼                     ▼
-          tools / MCP servers / RAG / Microsoft Graph / web
+          tools / MCP servers / RAG / Microsoft Graph / web / Docker sandbox
 ```
 
-- **`agents/factory.py`** registers the 18 agents and their tools.
+- **`agents/factory.py`** registers the 19 agents and their tools.
 - **`agents/orchestrator.py`** builds the model client (with provider
   fallback) and routes requests; its routing prompt lives in
   `config/agents.yaml`.
 - **`config/__init__.py`** loads and validates configuration, detecting
   placeholder credentials so the app degrades gracefully.
+
+---
+
+## Sandboxed code execution
+
+`CodeExecutorAgent` runs untrusted Python in a **hardened, ephemeral Docker
+container** instead of the host. Each run gets a fresh container that is:
+
+- **network-isolated** (`--network none` — no outbound calls),
+- **read-only root** with a small writable `tmpfs` `/tmp`,
+- **non-root** (`--user 65534:65534`), `--cap-drop ALL`, `no-new-privileges`,
+- **resource-bounded** (memory, CPUs, PID count, output size, wall-clock
+  timeout), and
+- **auto-reaped** — stale sandbox containers are cleaned up on startup.
+
+Control it via `.env` (see `.env.template` → *Code Sandbox*):
+
+```bash
+CODE_SANDBOX_MODE=auto   # auto | docker | subprocess | off
+SANDBOX_IMAGE=python:3.12-slim
+SANDBOX_TIMEOUT=30
+SANDBOX_MEMORY=256m
+```
+
+**Graceful degradation:** when the Docker daemon is unreachable (and mode is
+`auto`), execution falls back to a local subprocess that is clearly labelled
+`engine: subprocess · NOT isolated` in its output header, so callers always
+know whether the result came from a sandbox. Set `CODE_SANDBOX_MODE=docker` to
+require isolation, or `off` to disable code execution entirely. No extra Python
+package is needed — the sandbox shells out to the Docker CLI.
+
+---
+
+## Self-observability (tracing)
+
+The app records **in-process spans** for incoming requests, orchestrator
+routing, agent turns, and tool calls — no external collector required. Inspect
+them live over HTTP:
+
+```bash
+# Recent spans (newest first; limit 1..500)
+curl http://localhost:8000/api/v1/observability/traces?limit=50
+
+# Tracer stats (enabled flags, buffered span count, exporters)
+curl http://localhost:8000/api/v1/observability/stats
+```
+
+Configure via `.env` (see `.env.template` → *Self-Observability*):
+
+```bash
+TELEMETRY_ENABLED=true
+TELEMETRY_CAPTURE_CONTENT=false   # off by default (PII risk)
+OBSERVABILITY_API_ENABLED=true    # endpoints return 404 when false
+TELEMETRY_MAX_SPANS=500           # ring-buffer size
+```
+
+Telemetry is **dependency-free** and sanitizes attributes (sensitive keys
+redacted, content omitted unless `TELEMETRY_CAPTURE_CONTENT=true`). Optional
+external backends — OTLP (`OTEL_EXPORTER_OTLP_ENDPOINT`) and Langfuse
+(`LANGFUSE_*`) — are wired but inert until you set their credentials and
+uncomment the matching extras in `requirements.txt`.
 
 ---
 

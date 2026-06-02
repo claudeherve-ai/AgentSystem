@@ -46,12 +46,13 @@ def test_orchestrator_registration():
     orchestrator = build_orchestrator()
     status = orchestrator.status()
 
-    assert status["agent_count"] == 18
+    assert status["agent_count"] == 19
     for expected in (
         "AIEngineerAgent",
         "BusinessAgent",
         "CalendarAgent",
         "CloudDataAgent",
+        "CodeExecutorAgent",
         "EmailAgent",
         "EmailIntelAgent",
         "EngineeringAgent",

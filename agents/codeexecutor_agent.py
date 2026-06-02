@@ -5,8 +5,11 @@ This specialist runs Python code, parses files, and verifies its own output. Use
 for any request that requires actually computing something, transforming data, parsing
 a log file, generating a chart, or validating a script before handing it back.
 
-Code runs inside `memory/workspace/`, so artifacts persist between calls and can be
-referenced by later turns. Shell access is denylisted — destructive commands are blocked.
+Code runs in an isolated sandbox. When the Docker sandbox is active each run is
+ephemeral (no filesystem persists between calls); in the subprocess fallback,
+files written under `memory/workspace/` do persist. Always return important output
+in stdout rather than relying on files surviving between calls. Shell access is
+denylisted — destructive commands are blocked.
 """
 
 from __future__ import annotations
@@ -45,14 +48,18 @@ CODEEXECUTOR_AGENT_INSTRUCTIONS = (
     "4. Always inspect the actual output (stdout, files written) before claiming success.\n"
     "5. If your code errors, read the error, fix, and rerun. Do not guess.\n"
     "6. For non-trivial scripts, call `critique_response` on your final draft.\n\n"
-    "WORKSPACE RULES:\n"
-    "- Your workspace is `memory/workspace/`. Files written there persist between calls.\n"
+    "EXECUTION RULES:\n"
+    "- Execution is isolated. In Docker sandbox mode each run is ephemeral — the\n"
+    "  filesystem is reset every call, so nothing you write to disk survives. In the\n"
+    "  subprocess fallback, files under `memory/workspace/` do persist between calls.\n"
+    "- Never assume a file from a previous call still exists; recompute or re-read it,\n"
+    "  and return anything important via stdout (print it) so it is captured.\n"
     "- Never `rm -rf`, `del /q`, or operate outside the workspace.\n"
     "- Use stdlib first. If you import a package, verify it is installed before claiming success.\n"
     "- Imports needed beyond stdlib must be flagged to the user with a clear `pip install` line.\n\n"
     "OUTPUT RULES:\n"
     "- Always show the user the actual output you got — do not paraphrase tracebacks.\n"
-    "- If the task generated a file, give the user the workspace path so they can find it.\n"
+    "- If the task generated a file in subprocess mode, give the user the workspace path.\n"
     "- Be honest about what worked and what did not."
 )
 

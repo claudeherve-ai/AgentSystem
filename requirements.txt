@@ -29,3 +29,11 @@ beautifulsoup4>=4.12.0
 pdfplumber>=0.11.0
 python-docx>=1.1.0
 openpyxl>=3.1.0
+# ── Optional: code sandbox + self-observability ───────────────────────────
+# The Docker code sandbox (tools/docker_sandbox.py) shells out to the Docker
+# CLI and needs NO Python package. Telemetry (telemetry/) is dependency-free
+# and exports spans in-process. The extras below are only needed if you wire
+# an external trace backend; the app runs fully without them.
+# opentelemetry-sdk>=1.27.0        # OTLP span export (OTEL_EXPORTER_OTLP_ENDPOINT)
+# opentelemetry-exporter-otlp>=1.27.0
+# langfuse>=2.0.0                  # Langfuse export (LANGFUSE_PUBLIC_KEY/SECRET_KEY)
