@@ -1,7 +1,7 @@
 """
 AgentSystem — Claude-Skills Deep Integration
 =============================================
-Maps 328 production skills from alirezarezvani/claude-skills to the 36-agent
+Maps 328 production skills from alirezarezvani/claude-skills to the multi-agent
 orchestrator. Each skill's SKILL.md instructions + Python tools become callable
 agent capabilities.
 

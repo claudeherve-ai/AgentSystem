@@ -37,6 +37,7 @@ from agents.codeexecutor_agent import (
     CODEEXECUTOR_AGENT_INSTRUCTIONS,
     CODEEXECUTOR_AGENT_TOOLS,
 )
+from toolkits import FINANCE_TOOLS
 
 
 def build_orchestrator() -> Orchestrator:
@@ -144,7 +145,7 @@ def build_orchestrator() -> Orchestrator:
             "5. Growth experiments must include success metrics and statistical significance thresholds."
         ),
         description="Deals, proposals, sales strategy, growth hacking, funnel optimization (20+ tools)",
-        tools=REVENUE_TOOLS,
+        tools=[*REVENUE_TOOLS, *FINANCE_TOOLS],
         handoff_agents=["FinanceAgent", "LegalAgent", "BusinessAgent"],
     )
 
@@ -189,7 +190,7 @@ def build_orchestrator() -> Orchestrator:
             "5. Use claude-skills financial tools for DCF, ratios, SaaS metrics when applicable."
         ),
         description="Financial planning, tax strategy, investment research, budgeting (11 tools)",
-        tools=FINANCE_TOOLS_V2,
+        tools=[*FINANCE_TOOLS_V2, *FINANCE_TOOLS],
         handoff_agents=["RevenueAgent", "LegalAgent"],
     )
 
@@ -268,14 +269,14 @@ def build_orchestrator() -> Orchestrator:
         name="BusinessAgent",
         system_message=agent_configs.get("business_agent", {}).get("system_message", ""),
         description="CRM, customer records, business proposals, follow-ups",
-        tools=BUSINESS_TOOLS,
+        tools=[*BUSINESS_TOOLS, *FINANCE_TOOLS],
         handoff_agents=["RevenueAgent", "FinanceAgent"],
     )
     orch.register_agent(
         name="RealEstateAgent",
         system_message=agent_configs.get("realestate_agent", {}).get("system_message", ""),
         description="Property analysis, CMA, offer strategy, investment analysis",
-        tools=REALESTATE_TOOLS,
+        tools=[*REALESTATE_TOOLS, *FINANCE_TOOLS],
         handoff_agents=["FinanceAgent", "LegalAgent"],
     )
 
