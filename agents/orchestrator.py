@@ -16,8 +16,14 @@ from agent_framework.openai import OpenAIChatCompletionClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import get_agent_configs, get_model_config, get_system_config
+from config import (
+    MissingModelCredentialsError,
+    get_agent_configs,
+    get_model_config,
+    get_system_config,
+)
 from tools.audit import log_action
+from telemetry import get_tracer
 from tools.code_interpreter import CODE_INTERPRETER_TOOLS
 from tools.critique import CRITIQUE_TOOLS
 from tools.daily_briefing import DAILY_BRIEFING_TOOLS
@@ -80,29 +86,52 @@ class AgentRegistration:
 
 
 def create_model_client() -> OpenAIChatCompletionClient:
-    model_cfg = get_model_config()
-    model_name = model_cfg.resolved_model
+    """Build the chat-completion client for whichever provider has usable creds.
 
-    if model_cfg.provider == "azure_openai":
-        if not model_cfg.azure_endpoint or not model_cfg.azure_api_key:
-            raise ValueError(
-                "Azure OpenAI credentials not configured. "
-                "Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY in .env"
-            )
+    Honors the provider configured in ``agents.yaml`` when its credentials are
+    present, but transparently falls back between ``azure_openai`` and ``openai``
+    when the configured provider is missing (or has placeholder) credentials.
+    Raises :class:`MissingModelCredentialsError` only when NEITHER provider is
+    usable, so the API layer can return a clean 503 instead of a raw 500.
+    """
+    model_cfg = get_model_config()
+
+    # Surface, but don't hard-fail on, providers we don't yet support natively.
+    if model_cfg.provider not in ("azure_openai", "openai"):
+        logger.warning(
+            "Model provider %r is not natively supported yet; "
+            "falling back to any configured Azure OpenAI / OpenAI credentials.",
+            model_cfg.provider,
+        )
+
+    if not (model_cfg.has_azure_credentials or model_cfg.has_openai_credentials):
+        raise MissingModelCredentialsError(
+            "No LLM provider is configured. Set AZURE_OPENAI_ENDPOINT + "
+            "AZURE_OPENAI_API_KEY, or OPENAI_API_KEY, in your .env "
+            "(placeholder values like <your-key> are ignored)."
+        )
+
+    provider = model_cfg.effective_provider
+    model_name = model_cfg.effective_model
+
+    if provider != model_cfg.provider:
+        logger.warning(
+            "Configured provider %r lacks usable credentials; "
+            "falling back to %r.",
+            model_cfg.provider,
+            provider,
+        )
+
+    if provider == "azure_openai":
         return OpenAIChatCompletionClient(
             model=model_name,
             azure_endpoint=model_cfg.azure_endpoint,
             api_key=model_cfg.azure_api_key,
             api_version=model_cfg.azure_api_version,
         )
-    elif model_cfg.provider == "openai":
-        if not model_cfg.openai_api_key:
-            raise ValueError("OpenAI API key not configured. Set OPENAI_API_KEY in .env")
-        return OpenAIChatCompletionClient(
-            model=model_name, api_key=model_cfg.openai_api_key,
-        )
-    else:
-        raise ValueError(f"Unsupported model provider: {model_cfg.provider}")
+    return OpenAIChatCompletionClient(
+        model=model_name, api_key=model_cfg.openai_api_key,
+    )
 
 
 def get_default_agent_options() -> dict[str, Any]:
@@ -399,85 +428,97 @@ class Orchestrator:
         if not self._registrations:
             return "No agents registered. Please register agents first."
 
-        log_action("Orchestrator", "route_task", task[:200], status="started")
-        coordinator = self._get_or_create_coordinator()
-        contextualized_task = self._build_contextualized_task(task)
-        
-        # ── Attempt 1 ──
-        try:
-            result = await coordinator.run(
-                contextualized_task,
-                session=self._conversation_session,
-            )
-        except Exception as exc:
-            exc_name = type(exc).__name__
-            if "ContentFilter" in exc_name or "content_filter" in str(exc):
-                logger.warning("Content filter tripped on coordinator call — resetting session and retrying")
-                # Auto-reset session to clear conversation history that may trigger filter
+        async with get_tracer().span(
+            "agent.route_task",
+            kind="route",
+            attributes={
+                "task.length": len(task),
+                "agents.registered": len(self._registrations),
+            },
+        ) as span:
+            log_action("Orchestrator", "route_task", task[:200], status="started")
+            coordinator = self._get_or_create_coordinator()
+            contextualized_task = self._build_contextualized_task(task)
+
+            # ── Attempt 1 ──
+            try:
+                result = await coordinator.run(
+                    contextualized_task,
+                    session=self._conversation_session,
+                )
+            except Exception as exc:
+                exc_name = type(exc).__name__
+                if "ContentFilter" in exc_name or "content_filter" in str(exc):
+                    logger.warning("Content filter tripped on coordinator call — resetting session and retrying")
+                    span.add_event("content_filter.retry", {"stage": "coordinator"})
+                    # Auto-reset session to clear conversation history that may trigger filter
+                    self.reset_session()
+                    self._conversation_session = AgentSession(session_id=self._active_session_id)
+                    # Retry with clean session + simpler prompt
+                    try:
+                        safe_task = (
+                            "The user wants to publish a social media post. "
+                            "Use the most appropriate specialist to handle this. "
+                            "Do not mention tools or agent names in your response. "
+                            "Keep it brief and professional.\n\n"
+                            f"User request: {task}"
+                        )
+                        result = await coordinator.run(safe_task, session=self._conversation_session)
+                    except Exception as retry_exc:
+                        logger.error("Retry also failed: %s", retry_exc)
+                        span.set_attribute("route.outcome", "content_filter_blocked")
+                        return (
+                            "⚠️  Azure OpenAI's content filter is blocking this request "
+                            "(jailbreak filter false positive).\n\n"
+                            "Fix: Configure a custom content filter in Azure AI Foundry:\n"
+                            "  1. Go to https://ai.azure.com → Content Filters\n"
+                            "  2. Create filter with 'jailbreak' severity set to 'low' or 'off'\n"
+                            "  3. Assign it to deployment 'gpt-5.4-mini'\n\n"
+                            "Temporary workaround: Type `reset` and try with simpler phrasing."
+                        )
+                else:
+                    raise
+
+            final_response = getattr(result, "text", "")
+            if not final_response:
+                messages = getattr(result, "messages", [])
+                if messages:
+                    final_response = getattr(messages[-1], "text", "") or str(messages[-1])
+
+            # Detect content filter failures in subagent calls + auto-recover
+            if final_response and (
+                "content_filter" in final_response.lower()
+                or "Function failed" in final_response
+                or "jailbreak" in final_response.lower()
+            ):
+                logger.warning("Subagent content filter detected — resetting and retrying once")
+                span.add_event("content_filter.retry", {"stage": "subagent"})
                 self.reset_session()
                 self._conversation_session = AgentSession(session_id=self._active_session_id)
-                # Retry with clean session + simpler prompt
                 try:
                     safe_task = (
-                        "The user wants to publish a social media post. "
-                        "Use the most appropriate specialist to handle this. "
-                        "Do not mention tools or agent names in your response. "
-                        "Keep it brief and professional.\n\n"
-                        f"User request: {task}"
+                        "The user has a simple request. Handle it directly and professionally. "
+                        "Do not mention internal tool names or agent names.\n\n"
+                        f"User: {task}"
                     )
                     result = await coordinator.run(safe_task, session=self._conversation_session)
-                except Exception as retry_exc:
-                    logger.error("Retry also failed: %s", retry_exc)
-                    return (
-                        "⚠️  Azure OpenAI's content filter is blocking this request "
-                        "(jailbreak filter false positive).\n\n"
-                        "Fix: Configure a custom content filter in Azure AI Foundry:\n"
-                        "  1. Go to https://ai.azure.com → Content Filters\n"
-                        "  2. Create filter with 'jailbreak' severity set to 'low' or 'off'\n"
-                        "  3. Assign it to deployment 'gpt-5.4-mini'\n\n"
-                        "Temporary workaround: Type `reset` and try with simpler phrasing."
+                    final_response = getattr(result, "text", "")
+                    # Don't flag again on retry — just return whatever we got
+                except Exception:
+                    final_response = (
+                        "⚠️  Content filter persists after session reset. "
+                        "Configure a custom content filter in Azure AI Foundry "
+                        "with jailbreak severity = low/off for deployment 'gpt-5.4-mini'.\n\n"
+                        "Workaround: Type `reset`, then try your request with different wording."
                     )
-            else:
-                raise
 
-        final_response = getattr(result, "text", "")
-        if not final_response:
-            messages = getattr(result, "messages", [])
-            if messages:
-                final_response = getattr(messages[-1], "text", "") or str(messages[-1])
+            self._memory_store.save_turn(self._active_session_id, "user", task)
+            if final_response:
+                self._memory_store.save_turn(self._active_session_id, "assistant", final_response)
 
-        # Detect content filter failures in subagent calls + auto-recover
-        if final_response and (
-            "content_filter" in final_response.lower()
-            or "Function failed" in final_response
-            or "jailbreak" in final_response.lower()
-        ):
-            logger.warning("Subagent content filter detected — resetting and retrying once")
-            self.reset_session()
-            self._conversation_session = AgentSession(session_id=self._active_session_id)
-            try:
-                safe_task = (
-                    "The user has a simple request. Handle it directly and professionally. "
-                    "Do not mention internal tool names or agent names.\n\n"
-                    f"User: {task}"
-                )
-                result = await coordinator.run(safe_task, session=self._conversation_session)
-                final_response = getattr(result, "text", "")
-                # Don't flag again on retry — just return whatever we got
-            except Exception:
-                final_response = (
-                    "⚠️  Content filter persists after session reset. "
-                    "Configure a custom content filter in Azure AI Foundry "
-                    "with jailbreak severity = low/off for deployment 'gpt-5.4-mini'.\n\n"
-                    "Workaround: Type `reset`, then try your request with different wording."
-                )
-
-        self._memory_store.save_turn(self._active_session_id, "user", task)
-        if final_response:
-            self._memory_store.save_turn(self._active_session_id, "assistant", final_response)
-
-        log_action("Orchestrator", "route_task", task[:200], final_response[:500], status="completed")
-        return final_response or "Task completed but no response was generated."
+            log_action("Orchestrator", "route_task", task[:200], final_response[:500], status="completed")
+            span.set_attribute("response.length", len(final_response or ""))
+            return final_response or "Task completed but no response was generated."
 
     async def handle_user_input(self, user_input: str) -> str:
         logger.info(f"User input: {user_input[:100]}...")

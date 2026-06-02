@@ -1,7 +1,7 @@
 """
 AgentSystem — FastAPI Backend
 =============================
-Enterprise-grade API layer for the 38-agent orchestrator.
+Enterprise-grade API layer for the multi-agent orchestrator.
 Provides REST endpoints for chat, agent management, health, and metrics.
 
 Production entrypoint: uvicorn api.main:app --host 0.0.0.0 --port 8080
@@ -20,30 +20,16 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from api.dependencies import get_orchestrator
 from api.routes.agents import router as agents_router
 from api.routes.chat import router as chat_router
 from api.routes.health import router as health_router
+from api.routes.observability import router as observability_router
 from api.middleware.auth import AuthMiddleware
 from api.middleware.rate_limit import RateLimitMiddleware
+from api.middleware.telemetry import TelemetryMiddleware
 
 logger = logging.getLogger("agentsystem.api")
-
-# ── Orchestrator singleton (lazy init) ──────────────────────────────────────
-_orchestrator = None
-
-
-def get_orchestrator():
-    """Lazy-load the orchestrator with all 38 agents."""
-    global _orchestrator
-    if _orchestrator is None:
-        from agents.factory import build_orchestrator
-
-        _orchestrator = build_orchestrator()
-        logger.info(
-            "Orchestrator initialized with %d agents",
-            len(_orchestrator.agent_names),
-        )
-    return _orchestrator
 
 
 @asynccontextmanager
@@ -52,6 +38,15 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("AgentSystem API starting up...")
     get_orchestrator()  # Pre-load agents
+    # Best-effort cleanup of any sandbox containers leaked by a previous run.
+    try:
+        from tools.docker_sandbox import reap_stale_sandboxes
+
+        reaped = await reap_stale_sandboxes()
+        if reaped:
+            logger.info("Reaped %d stale sandbox container(s) at startup.", reaped)
+    except Exception as exc:  # noqa: BLE001 — never block startup
+        logger.debug("Sandbox reaper skipped: %s", exc)
     yield
     # Shutdown
     logger.info("AgentSystem API shutting down...")
@@ -61,7 +56,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(
         title="AgentSystem API",
-        description="38-Agent Enterprise Orchestrator — REST API",
+        description="Multi-Agent Enterprise Orchestrator — REST API",
         version="2.0.0",
         lifespan=lifespan,
         docs_url="/docs",
@@ -69,23 +64,41 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json",
     )
 
-    # CORS — allow dashboard and enterprise clients
+    # CORS — allow dashboard and enterprise clients.
+    # Browsers reject `allow_credentials=True` together with a wildcard origin,
+    # so only enable credentials when an explicit origin allow-list is provided.
+    cors_origins = [
+        origin.strip()
+        for origin in os.getenv("CORS_ORIGINS", "*").split(",")
+        if origin.strip()
+    ]
+    allow_credentials = "*" not in cors_origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
-        allow_credentials=True,
+        allow_origins=cors_origins,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # Custom middleware
-    app.add_middleware(RateLimitMiddleware)
+    # Custom middleware. Starlette runs the LAST-added middleware OUTERMOST.
+    # Order (outer -> inner): Telemetry -> RateLimit -> Auth -> route.
+    #  - Telemetry is outermost so the root span wraps the whole request.
+    #  - RateLimit sits OUTSIDE Auth so unauthenticated floods (e.g. invalid-key
+    #    brute force) are throttled before the auth check runs.
     app.add_middleware(AuthMiddleware)
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(TelemetryMiddleware)
 
     # Routes
     app.include_router(health_router, tags=["Health"])
     app.include_router(agents_router, prefix="/api/v1/agents", tags=["Agents"])
     app.include_router(chat_router, prefix="/api/v1/chat", tags=["Chat"])
+    app.include_router(
+        observability_router,
+        prefix="/api/v1/observability",
+        tags=["Observability"],
+    )
 
     # Root redirect
     @app.get("/")

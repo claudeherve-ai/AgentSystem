@@ -19,12 +19,63 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
 
+class MissingModelCredentialsError(RuntimeError):
+    """Raised when no LLM provider has usable (non-placeholder) credentials.
+
+    Callers should translate this into a clean, actionable 503 response rather
+    than letting it surface as a generic 500.
+    """
+
+
+# Markers that indicate a value is still a template placeholder rather than a
+# real secret/endpoint. Template defaults use angle brackets (e.g.
+# `<your-azure-openai-key>`), so `<`/`>` catch them without risking false
+# positives on legitimate values — an Azure endpoint may legitimately contain
+# substrings like "your-company". Keep this list structural and conservative.
+_PLACEHOLDER_MARKERS = (
+    "<",
+    ">",
+    "changeme",
+    "change-me",
+    "change_me",
+    "placeholder",
+    "replace-me",
+    "replace_me",
+    "sk-...",
+)
+
+
 def _clean_env(name: str, default: str = "") -> str:
     """Read an env var and normalize common accidental quoting/spacing."""
     value = os.getenv(name, default)
     if value is None:
         return ""
     return value.strip().strip('"').strip("'")
+
+
+def _is_placeholder(value: str) -> bool:
+    """True if a credential value is empty or a leftover template placeholder."""
+    cleaned = (value or "").strip().lower()
+    if not cleaned:
+        return True
+    return any(marker in cleaned for marker in _PLACEHOLDER_MARKERS)
+
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _clean_bool(name: str, default: bool = False) -> bool:
+    """Read a boolean env var, tolerant of common truthy spellings."""
+    raw = _clean_env(name, "true" if default else "false").lower()
+    return raw in _TRUTHY
+
+
+def _clean_int(name: str, default: int) -> int:
+    """Read an int env var, falling back to ``default`` on anything invalid."""
+    try:
+        return int(_clean_env(name, str(default)) or default)
+    except (TypeError, ValueError):
+        return default
 
 
 class ModelConfig(BaseModel):
@@ -34,9 +85,9 @@ class ModelConfig(BaseModel):
     temperature: float = Field(default=0.3)
     max_tokens: int = Field(default=4096)
 
-    @property
-    def resolved_model(self) -> str:
-        if self.provider == "azure_openai":
+    def _resolved_model_for(self, provider: str) -> str:
+        """Resolve the model/deployment name for a specific provider."""
+        if provider == "azure_openai":
             return (
                 _clean_env("AZURE_OPENAI_CHAT_COMPLETION_MODEL")
                 or _clean_env("AZURE_OPENAI_MODEL")
@@ -50,14 +101,64 @@ class ModelConfig(BaseModel):
         )
 
     @property
+    def resolved_model(self) -> str:
+        return self._resolved_model_for(self.provider)
+
+    @property
+    def has_azure_credentials(self) -> bool:
+        """True when both Azure endpoint and key are present and not placeholders."""
+        return not _is_placeholder(self.azure_endpoint) and not _is_placeholder(
+            self.azure_api_key
+        )
+
+    @property
+    def has_openai_credentials(self) -> bool:
+        """True when the OpenAI key is present and not a placeholder."""
+        return not _is_placeholder(self.openai_api_key)
+
+    @property
+    def has_any_model_credentials(self) -> bool:
+        """True when at least one supported provider has usable credentials."""
+        return self.has_azure_credentials or self.has_openai_credentials
+
+    @property
+    def effective_provider(self) -> str:
+        """The provider that will actually be used, after credential-aware fallback.
+
+        Prefers the configured provider when it has usable credentials, otherwise
+        falls back to whichever supported provider does. Unsupported providers
+        (e.g. ``anthropic``) and providers with placeholder creds fall through to
+        whatever is usable. Returns the configured provider unchanged when nothing
+        is usable, so callers can raise a clear error.
+        """
+        configured = self.provider
+        if configured == "azure_openai" and self.has_azure_credentials:
+            return "azure_openai"
+        if configured == "openai" and self.has_openai_credentials:
+            return "openai"
+        if self.has_azure_credentials:
+            return "azure_openai"
+        if self.has_openai_credentials:
+            return "openai"
+        return configured
+
+    @property
+    def effective_model(self) -> str:
+        """Resolved model name for the effective (post-fallback) provider."""
+        return self._resolved_model_for(self.effective_provider)
+
+    @property
     def supports_custom_temperature(self) -> bool:
         """
         Whether the current model accepts explicit non-default temperature values.
 
         Azure GPT-5 chat deployments reject custom temperatures and only accept the
-        service default, so we omit the parameter entirely for that family.
+        service default, so we omit the parameter entirely for that family. This
+        keys off ``effective_model`` (the provider actually used after
+        credential-aware fallback), not the configured one, to avoid sending a
+        custom temperature to a GPT-5 deployment reached via fallback.
         """
-        return not self.resolved_model.lower().startswith("gpt-5")
+        return not self.effective_model.lower().startswith("gpt-5")
 
     @property
     def azure_endpoint(self) -> str:
@@ -114,3 +215,102 @@ def get_agent_configs() -> dict[str, dict[str, Any]]:
 def get_guardrails_config() -> dict[str, Any]:
     """Load guardrails configuration."""
     return load_yaml("guardrails.yaml")
+
+
+# ---------------------------------------------------------------------------
+# PR2 — Sandboxed code execution configuration
+# ---------------------------------------------------------------------------
+
+# Execution engines for `tools.code_interpreter.run_python`:
+#   auto       -> Docker sandbox if available, else a LOUD subprocess fallback
+#                 (never silent: a warning is surfaced in output + audit + telemetry).
+#   docker     -> strict; require Docker, never fall back. Refuse if unavailable.
+#   subprocess -> legacy host subprocess (NOT a security boundary).
+#   off        -> code execution disabled; calls return a clear refusal.
+_VALID_SANDBOX_MODES = {"auto", "docker", "subprocess", "off"}
+
+
+class SandboxConfig(BaseModel):
+    """Configuration for sandboxed Python execution (PR2)."""
+
+    mode: str = Field(default="auto")
+    image: str = Field(default="python:3.12-slim")
+    memory: str = Field(default="256m")
+    cpus: str = Field(default="1")
+    pids_limit: int = Field(default=128)
+    tmpfs_size: str = Field(default="64m")
+    timeout_default: int = Field(default=30)
+    timeout_max: int = Field(default=120)
+    max_code_bytes: int = Field(default=1_000_000)
+    max_output_bytes: int = Field(default=32_000)
+    auto_pull: bool = Field(default=False)
+
+
+def get_sandbox_config() -> SandboxConfig:
+    """Load sandbox configuration from the environment (all optional)."""
+    mode = (_clean_env("CODE_SANDBOX_MODE", "auto") or "auto").lower()
+    if mode not in _VALID_SANDBOX_MODES:
+        mode = "auto"
+    return SandboxConfig(
+        mode=mode,
+        image=_clean_env("SANDBOX_IMAGE", "python:3.12-slim") or "python:3.12-slim",
+        memory=_clean_env("SANDBOX_MEMORY", "256m") or "256m",
+        cpus=_clean_env("SANDBOX_CPUS", "1") or "1",
+        pids_limit=_clean_int("SANDBOX_PIDS_LIMIT", 128),
+        tmpfs_size=_clean_env("SANDBOX_TMPFS_SIZE", "64m") or "64m",
+        timeout_default=_clean_int("SANDBOX_TIMEOUT", 30),
+        timeout_max=_clean_int("SANDBOX_TIMEOUT_MAX", 120),
+        max_code_bytes=_clean_int("SANDBOX_MAX_CODE_BYTES", 1_000_000),
+        max_output_bytes=_clean_int("SANDBOX_MAX_OUTPUT_BYTES", 32_000),
+        auto_pull=_clean_bool("CODE_SANDBOX_AUTO_PULL", False),
+    )
+
+
+# ---------------------------------------------------------------------------
+# PR2 — Self-observability / telemetry configuration
+# ---------------------------------------------------------------------------
+
+
+class TelemetryConfig(BaseModel):
+    """Configuration for the built-in tracer (PR2)."""
+
+    enabled: bool = Field(default=True)
+    capture_content: bool = Field(default=False)
+    api_enabled: bool = Field(default=True)
+    max_spans: int = Field(default=500)
+    jsonl_enabled: bool = Field(default=False)
+    jsonl_path: str = Field(default="")
+    otlp_endpoint: str = Field(default="")
+    langfuse_public_key: str = Field(default="")
+    langfuse_secret_key: str = Field(default="")
+    langfuse_host: str = Field(default="https://cloud.langfuse.com")
+
+    @property
+    def otlp_enabled(self) -> bool:
+        """OTLP export is active only when an endpoint is really set."""
+        return not _is_placeholder(self.otlp_endpoint)
+
+    @property
+    def langfuse_enabled(self) -> bool:
+        """Langfuse export needs both keys present and non-placeholder."""
+        return not _is_placeholder(self.langfuse_public_key) and not _is_placeholder(
+            self.langfuse_secret_key
+        )
+
+
+def get_telemetry_config() -> TelemetryConfig:
+    """Load telemetry configuration from the environment (all optional)."""
+    default_jsonl = str(PROJECT_ROOT / "data" / "telemetry" / "spans.jsonl")
+    return TelemetryConfig(
+        enabled=_clean_bool("TELEMETRY_ENABLED", True),
+        capture_content=_clean_bool("TELEMETRY_CAPTURE_CONTENT", False),
+        api_enabled=_clean_bool("OBSERVABILITY_API_ENABLED", True),
+        max_spans=_clean_int("TELEMETRY_MAX_SPANS", 500),
+        jsonl_enabled=_clean_bool("TELEMETRY_JSONL_ENABLED", False),
+        jsonl_path=_clean_env("TELEMETRY_JSONL_PATH", default_jsonl) or default_jsonl,
+        otlp_endpoint=_clean_env("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+        langfuse_public_key=_clean_env("LANGFUSE_PUBLIC_KEY", ""),
+        langfuse_secret_key=_clean_env("LANGFUSE_SECRET_KEY", ""),
+        langfuse_host=_clean_env("LANGFUSE_HOST", "https://cloud.langfuse.com")
+        or "https://cloud.langfuse.com",
+    )

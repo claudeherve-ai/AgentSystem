@@ -3,7 +3,8 @@ AgentSystem — Agent Management Routes
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from api.main import get_orchestrator
+from api.dependencies import get_orchestrator
+from config import MissingModelCredentialsError
 
 router = APIRouter()
 
@@ -49,13 +50,19 @@ async def get_agent(agent_name: str):
         raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
 
     registration = orch._registrations.get(agent_name)
-    agent = orch.get_agent(agent_name)
+    # Metadata must never crash when no LLM provider is configured. Instantiation
+    # is best-effort and only surfaced via the `instantiated` flag.
+    try:
+        agent = orch.get_agent(agent_name)
+        instantiated = agent is not None
+    except MissingModelCredentialsError:
+        instantiated = False
 
     return {
         "name": agent_name,
         "description": registration.description if registration else None,
         "tool_count": len(registration.tools) if registration else 0,
-        "instantiated": agent is not None,
+        "instantiated": instantiated,
     }
 
 

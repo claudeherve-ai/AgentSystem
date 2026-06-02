@@ -1,6 +1,6 @@
 """
 AgentSystem — Agent Factory v3.0
-18 powerhouse agents with inter-agent handoff. Each agent has:
+19 powerhouse agents with inter-agent handoff. Each agent has:
 - Base capability tools (web search, code execution, KB, critique)
 - Domain-specific tools from merged specialist agents
 - Claude-skills context injection
@@ -32,6 +32,11 @@ from agents.revenue_agent import REVENUE_TOOLS
 from agents.legal_agent_v2 import LEGAL_TOOLS_V2
 from agents.finance_agent_v2 import FINANCE_TOOLS_V2
 from agents.execution_agent import EXECUTION_TOOLS
+from agents.codeexecutor_agent import (
+    CODEEXECUTOR_AGENT_DESCRIPTION,
+    CODEEXECUTOR_AGENT_INSTRUCTIONS,
+    CODEEXECUTOR_AGENT_TOOLS,
+)
 
 
 def build_orchestrator() -> Orchestrator:
@@ -272,6 +277,15 @@ def build_orchestrator() -> Orchestrator:
         description="Property analysis, CMA, offer strategy, investment analysis",
         tools=REALESTATE_TOOLS,
         handoff_agents=["FinanceAgent", "LegalAgent"],
+    )
+
+    # ── SANDBOXED CODE EXECUTION ─────────────────────────────────────────
+    orch.register_agent(
+        name="CodeExecutorAgent",
+        system_message=CODEEXECUTOR_AGENT_INSTRUCTIONS,
+        description=CODEEXECUTOR_AGENT_DESCRIPTION,
+        tools=CODEEXECUTOR_AGENT_TOOLS,
+        handoff_agents=["EngineeringAgent", "ExecutionAgent"],
     )
 
     return orch
