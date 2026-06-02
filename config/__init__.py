@@ -4,6 +4,7 @@ AgentSystem — Configuration loader.
 Reads environment variables and YAML config files.
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,8 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 # Project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -342,4 +345,104 @@ def get_models_config() -> ModelsConfig:
     return ModelsConfig(
         enabled=_clean_bool("MODEL_ROUTER_ENABLED", True),
         config_path=_clean_env("MODEL_ROUTER_CONFIG", default_path) or default_path,
+    )
+
+
+# ---------------------------------------------------------------------------
+# PR4 — Durable human-in-the-loop approvals + Azure AI Search
+# ---------------------------------------------------------------------------
+
+APPROVAL_MODES = {"auto", "interactive", "durable"}
+
+
+def _clean_float(name: str, default: float) -> float:
+    """Read a float env var, falling back to ``default`` on anything invalid."""
+    try:
+        return float(_clean_env(name, str(default)) or default)
+    except (TypeError, ValueError):
+        return default
+
+
+class ApprovalConfig(BaseModel):
+    """Human-in-the-loop approval behaviour (PR4).
+
+    ``mode`` selects how :class:`guardrails.approval.HumanApproval` resolves a
+    request for a sensitive action:
+
+      * ``auto`` (default) — preserve historical behaviour: prompt on a TTY,
+        otherwise auto-approve. Keeps server/headless runs non-blocking and the
+        existing test suite green.
+      * ``interactive`` — always require a TTY prompt; if no terminal is
+        attached, FAIL CLOSED (never silently auto-approve).
+      * ``durable`` — persist a PENDING request to the approval store and block
+        until a human decides via ``/api/v1/approvals`` (or the wait times out →
+        fail closed). Any store/config failure also fails closed.
+
+    Timeout / poll values apply only to ``durable`` mode and are clamped to safe
+    bounds so a misconfigured env can't request a 0s poll or an unbounded wait.
+    """
+
+    mode: str = Field(default="auto")
+    wait_timeout_seconds: int = Field(default=300)
+    poll_interval_seconds: float = Field(default=2.0)
+
+    @property
+    def is_durable(self) -> bool:
+        return self.mode == "durable"
+
+
+def get_approval_config() -> ApprovalConfig:
+    """Load approval configuration from the environment (all optional)."""
+    raw_mode = _clean_env("APPROVAL_MODE", "auto").lower()
+    if not raw_mode:
+        # Unset / empty preserves historical non-blocking behaviour.
+        mode = "auto"
+    elif raw_mode in APPROVAL_MODES:
+        mode = raw_mode
+    else:
+        # An explicitly-set but UNKNOWN mode (e.g. a typo like "durabl") must
+        # NOT silently fall back to auto-approve — that would fail OPEN. Force
+        # the most restrictive mode so a misconfiguration fails closed.
+        logger.warning(
+            "Unknown APPROVAL_MODE=%r — defaulting to 'durable' (fail-closed).",
+            raw_mode,
+        )
+        mode = "durable"
+    # Clamp wait to 1..600s and poll to 0.5..60s; never trust raw env here.
+    wait = max(1, min(_clean_int("APPROVAL_WAIT_TIMEOUT", 300), 600))
+    poll = max(0.5, min(_clean_float("APPROVAL_POLL_INTERVAL", 2.0), 60.0))
+    return ApprovalConfig(
+        mode=mode,
+        wait_timeout_seconds=wait,
+        poll_interval_seconds=poll,
+    )
+
+
+class AzureSearchConfig(BaseModel):
+    """Optional Azure AI Search vector backend for case memory (PR4).
+
+    Purely additive: when disabled (no creds, or the SDK is not installed) case
+    search falls back to the existing local FTS / embedding index with
+    byte-for-byte behaviour.
+    """
+
+    endpoint: str = Field(default="")
+    api_key: str = Field(default="")
+    index_name: str = Field(default="agentsystem-cases")
+
+    @property
+    def enabled(self) -> bool:
+        return (
+            not _is_placeholder(self.endpoint)
+            and not _is_placeholder(self.api_key)
+        )
+
+
+def get_azure_search_config() -> AzureSearchConfig:
+    """Load Azure AI Search configuration from the environment (all optional)."""
+    return AzureSearchConfig(
+        endpoint=_clean_env("AZURE_SEARCH_ENDPOINT", ""),
+        api_key=_clean_env("AZURE_SEARCH_KEY", ""),
+        index_name=_clean_env("AZURE_SEARCH_INDEX", "agentsystem-cases")
+        or "agentsystem-cases",
     )

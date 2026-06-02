@@ -322,7 +322,7 @@ class SearchHit:
     chunk_index: int
     snippet: str
     score: float
-    source: str  # "semantic" | "fts" | "hybrid"
+    source: str  # "semantic" | "fts" | "hybrid" | "azure"
 
 
 # ── Indexing ─────────────────────────────────────────────────────────────────
@@ -550,6 +550,7 @@ async def search_cases(
         return []
 
     conn = _connect(db_path)
+    qvec: Optional[list[float]] = None
     try:
         sem_hits: list[SearchHit] = []
         if embeddings_enabled():
@@ -560,10 +561,37 @@ async def search_cases(
     finally:
         conn.close()
 
+    # Optional Azure AI Search fan-out (PR4). Lazy-imported so the dependency
+    # stays optional and there is no import cost / circular import when disabled.
+    azure_hits: list[SearchHit] = []
+    try:
+        from tools import azure_search
+
+        if azure_search.azure_search_enabled():
+            docs = await azure_search.azure_semantic_search(
+                query, query_vector=qvec, top_k=top_k, case_folder=case_folder
+            )
+            if docs:
+                azure_hits = [
+                    SearchHit(
+                        case_folder=d.get("case_folder", ""),
+                        file_path=d.get("file_path", ""),
+                        chunk_index=int(d.get("chunk_index", 0) or 0),
+                        snippet=d.get("snippet", ""),
+                        score=float(d.get("score", 0.0) or 0.0),
+                        source="azure",
+                    )
+                    for d in docs
+                ]
+    except Exception as exc:  # noqa: BLE001 - Azure path must never break search
+        logger.debug("RAG: Azure AI Search fan-out skipped (%s)", exc)
+
     # Merge: dedupe by (file_path, chunk_index), prefer semantic score
     by_key: dict[tuple[str, int], SearchHit] = {}
     for h in sem_hits:
         by_key[(h.file_path, h.chunk_index)] = h
+    for h in azure_hits:
+        by_key.setdefault((h.file_path, h.chunk_index), h)
     for h in fts_hits:
         key = (h.file_path, h.chunk_index)
         if key in by_key:
