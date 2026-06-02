@@ -42,3 +42,11 @@ openpyxl>=3.1.0
 # CI gate. The ONLINE suite uses deepeval for LLM-judged metrics; each online
 # task structurally self-skips when deepeval or LLM credentials are missing.
 # deepeval>=1.0.0                   # online answer-relevancy metric (evals/metrics.py)
+
+# -- Optional: Azure AI Search vector backend (PR4, tools/azure_search.py) --
+# A Microsoft/Azure-native alternative to a standalone vector DB. When the SDK
+# is installed AND AZURE_SEARCH_ENDPOINT/AZURE_SEARCH_API_KEY are configured,
+# case memory (tools/rag_store.py) fans a semantic query out to Azure AI Search
+# and merges the hits. Absent the SDK the feature is silently disabled and the
+# local SQLite FTS5 + embedding store is used unchanged.
+# azure-search-documents>=11.5.0

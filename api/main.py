@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 
 from api.dependencies import get_orchestrator
 from api.routes.agents import router as agents_router
+from api.routes.approvals import router as approvals_router
 from api.routes.chat import router as chat_router
 from api.routes.health import router as health_router
 from api.routes.models import router as models_router
@@ -96,6 +97,9 @@ def create_app() -> FastAPI:
     app.include_router(agents_router, prefix="/api/v1/agents", tags=["Agents"])
     app.include_router(chat_router, prefix="/api/v1/chat", tags=["Chat"])
     app.include_router(models_router, prefix="/api/v1/models", tags=["Models"])
+    app.include_router(
+        approvals_router, prefix="/api/v1/approvals", tags=["Approvals"]
+    )
     app.include_router(
         observability_router,
         prefix="/api/v1/observability",
