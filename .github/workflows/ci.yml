@@ -26,5 +26,16 @@ jobs:
         continue-on-error: true
         run: ruff check .
 
+      - name: Pre-pull sandbox image
+        # GitHub-hosted runners ship the Docker daemon but no images. The live
+        # docker_sandbox security tests (isolation, network-block, timeout) need
+        # python:3.12-slim present locally, so pull it once up front. This makes
+        # those tests genuinely run in CI instead of failing on a missing image.
+        run: docker pull python:3.12-slim
+
       - name: Run tests
+        # CODE_SANDBOX_AUTO_PULL is belt-and-suspenders: if the pre-pull step is
+        # ever skipped, the sandbox auto-pulls the image on first use.
+        env:
+          CODE_SANDBOX_AUTO_PULL: "true"
         run: pytest -q

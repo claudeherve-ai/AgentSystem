@@ -37,3 +37,8 @@ openpyxl>=3.1.0
 # opentelemetry-sdk>=1.27.0        # OTLP span export (OTEL_EXPORTER_OTLP_ENDPOINT)
 # opentelemetry-exporter-otlp>=1.27.0
 # langfuse>=2.0.0                  # Langfuse export (LANGFUSE_PUBLIC_KEY/SECRET_KEY)
+# ── Optional: LLM-quality eval metrics (evals/) ───────────────────────────
+# The offline eval suite (python -m evals.run) is dependency-free and is the
+# CI gate. The ONLINE suite uses deepeval for LLM-judged metrics; each online
+# task structurally self-skips when deepeval or LLM credentials are missing.
+# deepeval>=1.0.0                   # online answer-relevancy metric (evals/metrics.py)

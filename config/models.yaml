@@ -1,0 +1,98 @@
+# AgentSystem — Multi-Model Router catalog (PR3)
+#
+# Declarative model profiles + a per-agent routing policy. The router reads this
+# file to decide which model a given agent should use, and how to fall back when
+# a profile's provider has no usable credentials in the current environment.
+#
+# IMPORTANT — credentials & safety:
+#   * This file contains NO secrets. Credentials are read live from the
+#     environment via config.ModelConfig (AZURE_OPENAI_* / OPENAI_API_KEY).
+#   * `anthropic` is a DECLARED-but-not-buildable provider: you can describe a
+#     profile for it, but until an Anthropic client is wired in (and a key
+#     exists) the router will transparently fall back along the profile's
+#     `fallback` chain to a buildable provider. This keeps the system fully
+#     functional today with only Azure OpenAI / OpenAI credentials.
+#
+# Buildable providers : azure_openai, openai
+# Known providers     : azure_openai, openai, anthropic
+#
+# Cost numbers below are ILLUSTRATIVE placeholders (USD per 1K tokens) used only
+# by the local cost estimator. They are NOT authoritative pricing.
+
+default_profile: balanced
+
+profiles:
+  fast:
+    provider: azure_openai
+    model: gpt-5.4-mini
+    tier: fast
+    cost_per_1k_input: 0.00015
+    cost_per_1k_output: 0.0006
+    fallback: [openai_fast, balanced]
+
+  balanced:
+    provider: azure_openai
+    model: gpt-5.4
+    tier: balanced
+    cost_per_1k_input: 0.0025
+    cost_per_1k_output: 0.01
+    fallback: [openai_balanced, fast]
+
+  deep:
+    # Declared-but-not-buildable today (no Anthropic client / key). Falls back to
+    # a buildable profile so agents pinned to `deep` still work.
+    provider: anthropic
+    model: claude-opus-4
+    tier: deep
+    cost_per_1k_input: 0.015
+    cost_per_1k_output: 0.075
+    fallback: [balanced, openai_balanced]
+
+  reasoning:
+    provider: openai
+    model: o4-mini
+    tier: reasoning
+    cost_per_1k_input: 0.0011
+    cost_per_1k_output: 0.0044
+    fallback: [balanced, fast]
+
+  openai_fast:
+    provider: openai
+    model: gpt-4o-mini
+    tier: fast
+    cost_per_1k_input: 0.00015
+    cost_per_1k_output: 0.0006
+    fallback: [fast, balanced]
+
+  openai_balanced:
+    provider: openai
+    model: gpt-4o
+    tier: balanced
+    cost_per_1k_input: 0.0025
+    cost_per_1k_output: 0.01
+    fallback: [balanced, fast]
+
+# Per-agent routing policy keyed by the agent's RUNTIME REGISTRATION NAME
+# (as registered in agents/factory.py). Agents not listed here use
+# `default_profile`. Targets that don't match a defined profile are ignored
+# with a warning (non-fatal).
+policy:
+  EngineeringAgent: deep
+  AIEngineerAgent: deep
+  SecurityEngineerAgent: deep
+  CloudDataAgent: reasoning
+  CodeExecutorAgent: reasoning
+  FinanceAgent: balanced
+  LegalAgent: balanced
+  BusinessAgent: balanced
+  RevenueAgent: balanced
+  EnterpriseIntegrationAgent: balanced
+  ProductManagerAgent: balanced
+  ProjectManagerAgent: balanced
+  ProjectShepherdAgent: balanced
+  RealEstateAgent: balanced
+  ExecutionAgent: fast
+  EmailAgent: fast
+  EmailIntelAgent: fast
+  CalendarAgent: fast
+  SocialAgent: fast

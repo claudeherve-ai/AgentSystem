@@ -32,6 +32,9 @@ class MissingModelCredentialsError(RuntimeError):
 # `<your-azure-openai-key>`), so `<`/`>` catch them without risking false
 # positives on legitimate values — an Azure endpoint may legitimately contain
 # substrings like "your-company". Keep this list structural and conservative.
+# The one literal host fragment below is the exact endpoint shipped in
+# `.env.template`; it has no angle brackets, so a copied-but-unedited template
+# would otherwise read as a real endpoint and flip ``has_azure_credentials``.
 _PLACEHOLDER_MARKERS = (
     "<",
     ">",
@@ -42,6 +45,7 @@ _PLACEHOLDER_MARKERS = (
     "replace-me",
     "replace_me",
     "sk-...",
+    "your-resource.cognitiveservices.azure.com",
 )
 
 
@@ -313,4 +317,29 @@ def get_telemetry_config() -> TelemetryConfig:
         langfuse_secret_key=_clean_env("LANGFUSE_SECRET_KEY", ""),
         langfuse_host=_clean_env("LANGFUSE_HOST", "https://cloud.langfuse.com")
         or "https://cloud.langfuse.com",
+    )
+
+
+# ---------------------------------------------------------------------------
+# PR3 — Multi-model router configuration
+# ---------------------------------------------------------------------------
+
+
+class ModelsConfig(BaseModel):
+    """Configuration for the multi-model router (PR3).
+
+    The router itself reads credentials live from :class:`ModelConfig`; this
+    only governs whether routing is enabled and where the catalog lives.
+    """
+
+    enabled: bool = Field(default=True)
+    config_path: str = Field(default="")
+
+
+def get_models_config() -> ModelsConfig:
+    """Load model-router configuration from the environment (all optional)."""
+    default_path = str(PROJECT_ROOT / "config" / "models.yaml")
+    return ModelsConfig(
+        enabled=_clean_bool("MODEL_ROUTER_ENABLED", True),
+        config_path=_clean_env("MODEL_ROUTER_CONFIG", default_path) or default_path,
     )
