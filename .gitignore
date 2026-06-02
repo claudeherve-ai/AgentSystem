@@ -33,5 +33,3 @@ memory/device_flow.json
 memory/token_cache.bin
 .venv-wsl/
 claude-skills
-aspire/**/bin/
-aspire/**/obj/
