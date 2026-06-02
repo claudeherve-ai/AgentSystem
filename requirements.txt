@@ -50,3 +50,10 @@ openpyxl>=3.1.0
 # and merges the hits. Absent the SDK the feature is silently disabled and the
 # local SQLite FTS5 + embedding store is used unchanged.
 # azure-search-documents>=11.5.0
+
+# -- Optional: Voice / OpenAI Realtime (PR5, tools/voice.py) ───────────────
+# The durable-workflows feature (workflows/) needs NO new dependency — it
+# rides on agent-framework-core (already pinned above). Voice is also fully
+# fail-closed: the OpenAI Realtime adapter only activates when the `openai`
+# package (a transitive dep of agent-framework-openai above) is importable
+# AND VOICE_ENABLED=true with a real OPENAI_API_KEY. No extra install needed.

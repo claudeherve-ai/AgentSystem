@@ -27,6 +27,8 @@ from api.routes.chat import router as chat_router
 from api.routes.health import router as health_router
 from api.routes.models import router as models_router
 from api.routes.observability import router as observability_router
+from api.routes.voice import router as voice_router
+from api.routes.workflows import router as workflows_router
 from api.middleware.auth import AuthMiddleware
 from api.middleware.rate_limit import RateLimitMiddleware
 from api.middleware.telemetry import TelemetryMiddleware
@@ -105,6 +107,10 @@ def create_app() -> FastAPI:
         prefix="/api/v1/observability",
         tags=["Observability"],
     )
+    app.include_router(
+        workflows_router, prefix="/api/v1/workflows", tags=["Workflows"]
+    )
+    app.include_router(voice_router, prefix="/api/v1/voice", tags=["Voice"])
 
     # Root redirect
     @app.get("/")

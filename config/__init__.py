@@ -446,3 +446,89 @@ def get_azure_search_config() -> AzureSearchConfig:
         index_name=_clean_env("AZURE_SEARCH_INDEX", "agentsystem-cases")
         or "agentsystem-cases",
     )
+
+
+# ---------------------------------------------------------------------------
+# PR5 — Durable workflows (MS Agent Framework Workflows) + Voice (Realtime)
+# ---------------------------------------------------------------------------
+
+
+class WorkflowConfig(BaseModel):
+    """Durable workflow engine configuration (PR5).
+
+    The built-in demo pipeline is pure-Python and credential-free, so the
+    durable checkpoint/resume capability is enabled by default and is fully
+    exercisable in CI and over REST with no LLM keys and no external services.
+
+    The bounds below are SAFETY rails, not tuning knobs — they cap the blast
+    radius of ``POST /runs`` so an enabled-by-default feature cannot become a
+    disk-growth / DoS vector:
+
+      * ``max_input_chars`` — reject oversized inputs before any checkpoint is
+        written.
+      * ``max_iterations``  — clamp the number of pipeline steps (the demo
+        pipeline is a fixed acyclic chain, so step count == superstep count).
+      * ``max_runs``        — retention cap; the engine prunes the oldest run
+        checkpoint subdirectories beyond this many.
+
+    Every value is clamped in :func:`get_workflow_config` so a hostile or
+    fat-fingered env can't request an unbounded wait, a 0-step pipeline, or
+    unbounded retention.
+    """
+
+    enabled: bool = Field(default=True)
+    checkpoint_dir: str = Field(default="memory/workflows")
+    max_iterations: int = Field(default=100)
+    max_runs: int = Field(default=50)
+    max_input_chars: int = Field(default=10000)
+
+
+def get_workflow_config() -> WorkflowConfig:
+    """Load durable-workflow configuration from the environment (all optional)."""
+    return WorkflowConfig(
+        enabled=_clean_bool("WORKFLOW_ENABLED", True),
+        checkpoint_dir=_clean_env("WORKFLOW_CHECKPOINT_DIR", "memory/workflows")
+        or "memory/workflows",
+        # Clamp to 1..1000 steps; the demo chain is 4, custom test pipelines
+        # are tiny. Never trust the raw env here.
+        max_iterations=max(1, min(_clean_int("WORKFLOW_MAX_ITERATIONS", 100), 1000)),
+        # Retention: keep at most this many run checkpoint subdirs (1..1000).
+        max_runs=max(1, min(_clean_int("WORKFLOW_MAX_RUNS", 50), 1000)),
+        # Reject inputs larger than this many chars before checkpointing.
+        max_input_chars=max(
+            1, min(_clean_int("WORKFLOW_MAX_INPUT_CHARS", 10000), 1000000)
+        ),
+    )
+
+
+class VoiceConfig(BaseModel):
+    """Optional OpenAI Realtime (voice) configuration (PR5, OPT-IN / FAIL-CLOSED).
+
+    Voice is OFF by default and only turns on when BOTH an explicit
+    ``VOICE_ENABLED=true`` flag is set AND a real (non-placeholder)
+    ``OPENAI_API_KEY`` is present. The key is never echoed back by any status
+    surface — :attr:`enabled` is the only thing callers should inspect.
+    """
+
+    api_key: str = Field(default="")
+    model: str = Field(default="gpt-4o-realtime-preview")
+    voice: str = Field(default="alloy")
+    flag_enabled: bool = Field(default=False)
+
+    @property
+    def enabled(self) -> bool:
+        # Both the explicit opt-in flag AND a real key are required. A
+        # placeholder key (``<your-openai-key>``) keeps voice fail-closed even
+        # if the flag was flipped on by accident.
+        return self.flag_enabled and not _is_placeholder(self.api_key)
+
+
+def get_voice_config() -> VoiceConfig:
+    """Load voice (OpenAI Realtime) configuration from the environment."""
+    return VoiceConfig(
+        api_key=_clean_env("OPENAI_API_KEY", ""),
+        model=_clean_env("VOICE_MODEL", "gpt-4o-realtime-preview")
+        or "gpt-4o-realtime-preview",
+        voice=_clean_env("VOICE_NAME", "alloy") or "alloy",
+        flag_enabled=_clean_bool("VOICE_ENABLED", False),
+    )

@@ -19,6 +19,7 @@ build/
 # Memory database (local only)
 memory/*.db
 memory/conversation_log/*.json
+memory/workflows/
 
 # OS
 Thumbs.db
