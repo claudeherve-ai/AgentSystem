@@ -20,6 +20,7 @@ from config import (
     MissingModelCredentialsError,
     get_agent_configs,
     get_model_config,
+    get_models_config,
     get_system_config,
 )
 from tools.audit import log_action
@@ -83,6 +84,7 @@ class AgentRegistration:
     description: str = ""
     tools: list[Any] = field(default_factory=list)
     handoff_agents: list[str] = field(default_factory=list)  # Agents this agent can call
+    model_profile: Optional[str] = None  # PR3: opt-in routing profile (None → catalog policy/legacy)
 
 
 def create_model_client() -> OpenAIChatCompletionClient:
@@ -165,6 +167,89 @@ class Orchestrator:
             self._model_client = create_model_client()
         return self._model_client
 
+    # ── PR3: per-agent multi-model routing (opt-in, fails safe to legacy) ──
+    def _routing_enabled(self) -> bool:
+        """Whether the model router is enabled (defaults on; never raises)."""
+        try:
+            return get_models_config().enabled
+        except Exception:  # pragma: no cover - defensive
+            return False
+
+    def _profile_for_agent(self, name: str, registration: AgentRegistration) -> Optional[str]:
+        """Resolve the routing profile for an agent.
+
+        Precedence: explicit ``registration.model_profile`` → catalog ``policy``
+        entry keyed by the agent's registration name → ``None`` (legacy client).
+        Never raises; any catalog problem degrades to ``None``.
+        """
+        if registration.model_profile:
+            return registration.model_profile
+        try:
+            from routing import get_router
+
+            return get_router().catalog.policy.get(name)
+        except Exception:
+            return None
+
+    def _client_for_agent(
+        self, name: str, registration: AgentRegistration
+    ) -> OpenAIChatCompletionClient:
+        """Build a specialist's client via the router, falling back to legacy.
+
+        Any router/catalog failure (including missing credentials) falls through
+        to :meth:`_get_model_client`, which preserves the existing clean-503
+        behavior when no provider is configured.
+        """
+        if self._routing_enabled():
+            profile = self._profile_for_agent(name, registration)
+            if profile:
+                try:
+                    from routing import get_router
+
+                    client = get_router().build_client(profile)
+                    logger.info("Agent %s routed via profile %r", name, profile)
+                    return client
+                except MissingModelCredentialsError:
+                    # Let the legacy path raise the canonical clean error below.
+                    pass
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning(
+                        "Routing failed for agent %s (profile %r): %s; using legacy client.",
+                        name, profile, exc,
+                    )
+        return self._get_model_client()
+
+    def _annotate_routing(self, span: Any) -> None:
+        """Best-effort: attach the default profile's model.* attrs to a span."""
+        try:
+            if not self._routing_enabled():
+                return
+            from routing import get_router
+
+            resolved = get_router().resolve()
+            for key, value in resolved.as_attributes().items():
+                span.set_attribute(key, value)
+        except Exception:  # pragma: no cover - telemetry must never break routing
+            pass
+
+    def _routing_status(self) -> dict[str, Any]:
+        """Compact, secret-free routing summary for ``status()`` (never raises)."""
+        if not self._routing_enabled():
+            return {"enabled": False}
+        try:
+            from routing import get_router
+
+            catalog = get_router().catalog
+            return {
+                "enabled": True,
+                "default_profile": catalog.default_profile,
+                "profiles": sorted(catalog.profiles),
+                "policy_entries": len(catalog.policy),
+                "warnings": list(catalog.warnings),
+            }
+        except Exception as exc:
+            return {"enabled": True, "available": False, "error": str(exc)}
+
     def _get_or_create_agent(self, name: str) -> Optional[Agent]:
         """Create a specialist agent with inter-agent handoff tools."""
         registration = self._registrations.get(name)
@@ -230,7 +315,7 @@ class Orchestrator:
                 self._agents[name] = Agent(
                     name=registration.name,
                     description=registration.description or f"Agent: {registration.name}",
-                    client=self._get_model_client(),
+                    client=self._client_for_agent(name, registration),
                     instructions=instructions,
                     tools=tools,
                     default_options=get_default_agent_options(),
@@ -388,6 +473,7 @@ class Orchestrator:
         description: str = "",
         tools: Optional[list] = None,
         handoff_agents: Optional[list[str]] = None,
+        model_profile: Optional[str] = None,
     ) -> AgentRegistration:
         """
         Register a subagent with the orchestrator.
@@ -398,6 +484,9 @@ class Orchestrator:
             description: Short routing description
             tools: List of callable tools the agent can use
             handoff_agents: Other agents this agent can call
+            model_profile: Optional routing profile override (PR3). When None,
+                the catalog ``policy`` map (keyed by ``name``) decides, falling
+                back to the legacy shared client.
         """
         registration = AgentRegistration(
             name=name,
@@ -405,6 +494,7 @@ class Orchestrator:
             description=description or f"Agent: {name}",
             tools=tools or [],
             handoff_agents=handoff_agents or [],
+            model_profile=model_profile,
         )
         self._registrations[name] = registration
         self._agents.pop(name, None)
@@ -437,6 +527,7 @@ class Orchestrator:
             },
         ) as span:
             log_action("Orchestrator", "route_task", task[:200], status="started")
+            self._annotate_routing(span)
             coordinator = self._get_or_create_coordinator()
             contextualized_task = self._build_contextualized_task(task)
 
@@ -542,4 +633,5 @@ class Orchestrator:
             "model_provider": get_model_config().provider,
             "active_session_id": self._active_session_id,
             "remembered_facts": self._memory_store.count_memories(),
+            "routing": self._routing_status(),
         }

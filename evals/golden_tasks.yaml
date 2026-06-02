@@ -1,0 +1,74 @@
+# AgentSystem — Golden evaluation tasks (PR3)
+#
+# Two suites:
+#   offline:  deterministic checks that need NO LLM credentials and NO network.
+#             These are the gate that runs in CI and must always pass.
+#   online:   LLM-quality checks (DeepEval). Each task self-skips when LLM
+#             credentials or the optional `deepeval` package are unavailable, so
+#             the suite degrades gracefully rather than failing.
+#
+# Task shape:
+#   id:    unique string
+#   kind:  handler name (see evals/harness.py)
+#   ...:   kind-specific fields
+#
+# NOTE: router_resolution tasks inject a synthetic provider-availability set so
+# they exercise real fallback logic without touching credentials or the network.
+
+offline:
+  # ── catalog integrity ────────────────────────────────────────────────────
+  - id: catalog-loads
+    kind: catalog_integrity
+    expect_min_profiles: 3
+    expect_default: balanced
+
+  # ── router resolution matrix (no creds, no network) ──────────────────────
+  - id: resolve-balanced-with-azure
+    kind: router_resolution
+    profile: balanced
+    available: [azure_openai]
+    expect_provider: azure_openai
+    expect_substituted: false
+
+  - id: resolve-deep-falls-back-to-openai
+    kind: router_resolution
+    profile: deep            # anthropic (not buildable) -> must fall back
+    available: [openai]
+    expect_provider: openai
+    expect_substituted: true
+
+  - id: resolve-deep-falls-back-to-azure
+    kind: router_resolution
+    profile: deep
+    available: [azure_openai]
+    expect_provider: azure_openai
+    expect_substituted: true
+
+  - id: resolve-unknown-anchors-on-default
+    kind: router_resolution
+    profile: does-not-exist
+    available: [azure_openai]
+    expect_provider: azure_openai
+    expect_substituted: true
+
+  - id: resolve-unresolvable-without-creds
+    kind: router_resolution
+    profile: balanced
+    available: []            # no buildable provider has creds
+    expect_unresolvable: true
+
+  # ── orchestrator wiring ──────────────────────────────────────────────────
+  - id: agents-register
+    kind: agent_registration
+    expect_min_agents: 19
+
+  # ── guardrails config present ────────────────────────────────────────────
+  - id: guardrails-load
+    kind: guardrails_load
+
+online:
+  - id: relevancy-smoke
+    kind: llm_relevancy
+    profile: balanced
+    input: "What is 2 + 2? Answer with just the number."
+    threshold: 0.5

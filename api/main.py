@@ -24,6 +24,7 @@ from api.dependencies import get_orchestrator
 from api.routes.agents import router as agents_router
 from api.routes.chat import router as chat_router
 from api.routes.health import router as health_router
+from api.routes.models import router as models_router
 from api.routes.observability import router as observability_router
 from api.middleware.auth import AuthMiddleware
 from api.middleware.rate_limit import RateLimitMiddleware
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router, tags=["Health"])
     app.include_router(agents_router, prefix="/api/v1/agents", tags=["Agents"])
     app.include_router(chat_router, prefix="/api/v1/chat", tags=["Chat"])
+    app.include_router(models_router, prefix="/api/v1/models", tags=["Models"])
     app.include_router(
         observability_router,
         prefix="/api/v1/observability",
