@@ -81,6 +81,58 @@ def test_explicit_fk_type_is_respected():
     assert "BIGINT" not in fk_lines[0]
 
 
+def test_agent_tool_passes_full_grammar_through():
+    """The agent-facing `design_database_schema` tool must accept the full
+    entity grammar (typed fields, `unique`, nullable `?`, `<table>_id` FKs),
+    not just bare entity names, and emit rich FK-correct DDL.
+
+    Regression guard: the wrapper previously advertised only a "comma-separated
+    list of key entities", so the LLM produced id-only stub tables. Widening the
+    parameter must let a rich spec flow straight to the engine.
+    """
+    import asyncio
+
+    from agents.backendarchitect_agent import design_database_schema
+
+    spec = "User(name:str, email:str unique, age:int?), Order(total:decimal, status:str, user_id)"
+    rendered = asyncio.run(
+        design_database_schema(
+            domain="commerce",
+            entities=spec,
+            database_type="postgresql",
+        )
+    )
+    # Real, multi-column DDL — not an id-only stub.
+    assert "CREATE TABLE" in rendered
+    assert '"email"' in rendered and "UNIQUE" in rendered
+    assert '"age"' in rendered  # nullable typed column survived the wrapper
+    # FK column is present, correctly typed, and references the parent table.
+    fk_lines = [ln for ln in rendered.splitlines() if '"user_id"' in ln]
+    assert fk_lines, "expected a user_id FK column in the agent-path DDL"
+    assert "BIGINT" in fk_lines[0] and "VARCHAR" not in fk_lines[0]
+    assert "REFERENCES" in fk_lines[0]
+    # ER diagram rendered for the SQL target.
+    assert "erDiagram" in rendered
+
+
+def test_agent_tool_still_accepts_bare_names():
+    """Backward compatibility: bare comma-separated names must keep working."""
+    import asyncio
+
+    from agents.backendarchitect_agent import design_database_schema
+
+    rendered = asyncio.run(
+        design_database_schema(
+            domain="commerce",
+            entities="users, orders, products",
+            database_type="postgresql",
+        )
+    )
+    assert "CREATE TABLE" in rendered
+    for table in ("user", "order", "product"):
+        assert table in rendered.lower()
+
+
 # ── architecture engine ───────────────────────────────────────────────────
 def test_design_architecture_microservices():
     result = design_architecture(
