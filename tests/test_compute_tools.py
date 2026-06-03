@@ -50,6 +50,37 @@ def test_design_schema_nosql_produces_document():
     assert "CREATE TABLE" not in rendered  # not relational DDL
 
 
+def test_untyped_fk_matches_surrogate_pk_type():
+    """An untyped FK column must inherit the referenced surrogate PK type.
+
+    Regression: previously `user_id` (no explicit type) defaulted to VARCHAR
+    while the referenced `users.id` surrogate PK was BIGINT, producing DDL that
+    PostgreSQL/MySQL reject at execution ("incompatible types").
+    """
+    spec = "User(name:str, email:str unique), Order(total:decimal, status:str, user_id)"
+    result = design_schema("commerce", spec, database_type="postgresql")
+    # Locate the FK column line in the emitted DDL.
+    fk_lines = [ln for ln in result.ddl.splitlines() if '"user_id"' in ln]
+    assert fk_lines, "expected a user_id column in the DDL"
+    fk_line = fk_lines[0]
+    assert "BIGINT" in fk_line, f"FK column should be BIGINT, got: {fk_line!r}"
+    assert "VARCHAR" not in fk_line, f"FK column must not be VARCHAR: {fk_line!r}"
+    assert "REFERENCES" in fk_line
+    # The Mermaid ERD should also reflect the corrected type + FK tag.
+    assert "bigint user_id FK" in result.mermaid
+
+
+def test_explicit_fk_type_is_respected():
+    """An explicitly typed FK column keeps the user's declared type."""
+    spec = "User(id:int, name:str), Order(id:int, user_id:int, total:float)"
+    result = design_schema("commerce", spec, database_type="postgresql")
+    fk_lines = [ln for ln in result.ddl.splitlines() if '"user_id"' in ln]
+    assert fk_lines
+    # id:int -> INTEGER, so the explicit FK stays INTEGER (matches the PK).
+    assert "INTEGER" in fk_lines[0]
+    assert "BIGINT" not in fk_lines[0]
+
+
 # ── architecture engine ───────────────────────────────────────────────────
 def test_design_architecture_microservices():
     result = design_architecture(

@@ -77,6 +77,7 @@ class Column:
     unique: bool = False
     is_pk: bool = False
     fk_table: Optional[str] = None  # resolved referenced table, if any
+    explicit_type: bool = False  # True if the user typed `field:type` explicitly
 
 
 @dataclass
@@ -177,11 +178,19 @@ def _parse_field(token: str) -> Optional[Column]:
     token = re.sub(r"\b(unique|null|not null)\b", "", token, flags=re.IGNORECASE).strip()
     if ":" in token:
         raw_name, raw_type = token.split(":", 1)
+        explicit = True
     else:
         raw_name, raw_type = token, "str"
+        explicit = False
     name = _sanitize_ident(raw_name)
     ctype = raw_type.strip().lower() or "str"
-    return Column(name=name, canonical_type=ctype, nullable=nullable, unique=unique)
+    return Column(
+        name=name,
+        canonical_type=ctype,
+        nullable=nullable,
+        unique=unique,
+        explicit_type=explicit,
+    )
 
 
 def parse_entities(spec: str) -> list[Table]:
@@ -228,6 +237,16 @@ def _build_sql(domain: str, dialect: str, tables: list[Table]) -> SchemaResult:
     def quote(ident: str) -> str:
         return f"{q}{ident}{q}"
 
+    # Resolve each table's primary-key canonical type up front so foreign-key
+    # columns can be typed to MATCH the key they reference. A surrogate PK is
+    # `bigint`; an explicit id/pk column uses whatever type the user declared.
+    # Without this, an untyped `user_id` defaults to `str`/VARCHAR and produces
+    # DDL that PostgreSQL/MySQL reject ("incompatible types: ... and bigint").
+    pk_canonical: dict[str, str] = {}
+    for t in tables:
+        explicit_pk = next((c for c in t.columns if c.name in ("id", "pk")), None)
+        pk_canonical[t.name] = explicit_pk.canonical_type if explicit_pk else "bigint"
+
     for t in tables:
         # Surrogate PK unless the user supplied an explicit id/pk column.
         has_pk = any(c.name in ("id", "pk") for c in t.columns)
@@ -238,17 +257,11 @@ def _build_sql(domain: str, dialect: str, tables: list[Table]) -> SchemaResult:
             merm_cols.append("        bigint id PK")
         index_cols: list[str] = []
         for col in t.columns:
-            phys, w = _resolve_type(dialect, col.canonical_type)
-            warnings.extend(w)
-            constraints = []
             if col.name in ("id", "pk"):
                 col.is_pk = True
-                constraints.append("PRIMARY KEY")
-            else:
-                constraints.append("NULL" if col.nullable else "NOT NULL")
-            if col.unique:
-                constraints.append("UNIQUE")
-            # Foreign-key inference: <singular_table>_id -> that table.
+            # Foreign-key inference: <singular_table>_id -> that table. Resolve
+            # the target BEFORE picking the physical type so an untyped FK can
+            # inherit the referenced PK's type and keep the DDL executable.
             fk_target = None
             if col.name.endswith("_id") and not col.is_pk:
                 base = col.name[:-3]
@@ -257,6 +270,18 @@ def _build_sql(domain: str, dialect: str, tables: list[Table]) -> SchemaResult:
                     fk_target = cand
                 elif base in table_names:
                     fk_target = base
+            if fk_target and not col.explicit_type:
+                col.canonical_type = pk_canonical.get(fk_target, "bigint")
+            phys, w = _resolve_type(dialect, col.canonical_type)
+            warnings.extend(w)
+            constraints = []
+            if col.is_pk:
+                constraints.append("PRIMARY KEY")
+            else:
+                constraints.append("NULL" if col.nullable else "NOT NULL")
+            if col.unique:
+                constraints.append("UNIQUE")
+            if col.name.endswith("_id") and not col.is_pk:
                 if fk_target:
                     col.fk_table = fk_target
                     constraints.append(
