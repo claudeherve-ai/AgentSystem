@@ -199,31 +199,69 @@ async def analyze_api_costs(
         f"  {'TOTAL':<30} {'':>10} {'':>8} ${total_monthly:>9,.2f}\n\n"
     )
 
+    annual = total_monthly * 12
+    report += f"  📅 Annualized run-rate: ${annual:,.2f}/year\n\n"
+
     if budget:
         utilization = (total_monthly / budget * 100) if budget > 0 else 0
         status = "🟢 Under budget" if utilization < 80 else "🟡 Approaching limit" if utilization < 100 else "🔴 Over budget"
+        overspend = max(0.0, total_monthly - budget)
         report += (
             f"  📊 Budget Analysis:\n"
             f"    Monthly Budget:  ${budget:>10,.2f}\n"
             f"    Current Spend:   ${total_monthly:>10,.2f}\n"
             f"    Utilization:     {utilization:.1f}%\n"
-            f"    Status:          {status}\n\n"
+            f"    Status:          {status}\n"
         )
+        if overspend > 0:
+            report += f"    Overspend:       ${overspend:>10,.2f}/mo (${overspend * 12:,.2f}/yr)\n"
+        report += "\n"
 
     endpoint_costs.sort(key=lambda x: x[1], reverse=True)
-    report += f"  🎯 Optimization Recommendations:\n"
+
+    # --- Pareto (80/20) cost-driver analysis ---
+    report += f"  📈 Cost-Driver Breakdown (Pareto):\n"
+    cumulative = 0.0
+    pareto_endpoints: list[str] = []
+    for name, cost in endpoint_costs:
+        share = (cost / total_monthly * 100) if total_monthly > 0 else 0
+        cumulative += share
+        marker = ""
+        if cumulative <= 80 or not pareto_endpoints:
+            pareto_endpoints.append(name)
+            marker = " ◀ top driver"
+        report += f"    {name:<28} {share:>5.1f}%  (cum {cumulative:>5.1f}%){marker}\n"
+    if pareto_endpoints:
+        report += (
+            f"    → {len(pareto_endpoints)} of {len(endpoint_costs)} endpoint(s) drive ~80% of spend; "
+            f"focus optimization there first.\n"
+        )
+    report += "\n"
+
+    # --- Concrete projected savings (mid-point of estimate bands) ---
+    # caching 25%, batching 20%, dedup 7% applied to the top cost drivers.
+    top_spend = sum(cost for name, cost in endpoint_costs if name in pareto_endpoints)
+    savings_caching = top_spend * 0.25
+    savings_batching = top_spend * 0.20
+    savings_dedup = top_spend * 0.07
+    blended = savings_caching * 0.6 + savings_batching * 0.4  # assume overlap, not additive
+    blended = min(blended, top_spend)  # cap at the addressable spend
+
+    report += f"  🎯 Optimization Recommendations (ranked by impact):\n"
     for name, cost in endpoint_costs[:3]:
+        proj = cost * 0.25
         report += (
             f"    • {name} (${cost:,.2f}/mo)\n"
-            f"      → Consider caching, batching, or rate limiting\n"
+            f"      → Cache/batch/rate-limit — est. ${proj:,.2f}/mo (${proj * 12:,.2f}/yr) recoverable\n"
         )
 
     report += (
-        f"\n  💡 General Savings Strategies:\n"
-        f"    • Implement response caching (est. 20-30% reduction)\n"
-        f"    • Batch API calls where possible (est. 15-25% reduction)\n"
-        f"    • Add request deduplication (est. 5-10% reduction)\n"
-        f"    • Negotiate volume pricing with providers\n"
+        f"\n  💡 Projected Savings (applied to top cost drivers):\n"
+        f"    Response caching (~25%):      ${savings_caching:,.2f}/mo\n"
+        f"    Request batching (~20%):      ${savings_batching:,.2f}/mo\n"
+        f"    Deduplication (~7%):          ${savings_dedup:,.2f}/mo\n"
+        f"    Blended realistic target:     ${blended:,.2f}/mo (${blended * 12:,.2f}/yr)\n"
+        f"    New run-rate after savings:   ${total_monthly - blended:,.2f}/mo\n"
         f"{'═' * 70}\n"
     )
 

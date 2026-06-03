@@ -108,3 +108,104 @@ async def critique_response(
 
 
 CRITIQUE_TOOLS = [critique_response]
+
+
+# ---------------------------------------------------------------------------
+# Auto-critique helpers (used by the orchestrator for opt-out self-review)
+# ---------------------------------------------------------------------------
+
+import os
+import re
+
+# Substrings that mark a task as high-stakes enough to auto-review.
+_HIGH_STAKES_MARKERS = (
+    "architect", "architecture", "design", "schema", "database", "ddl",
+    "migration", "security", "secure", "auth", "review", "code", "deploy",
+    "production", "infrastructure", "terraform", "bicep", "pipeline",
+    "cost", "finops", "budget", "incident", "root cause", "rca",
+    "compliance", "audit", "threat", "vulnerability", "strategy",
+)
+
+# A draft this short is almost certainly chit-chat / a clarifying question.
+_MIN_DRAFT_CHARS_FOR_CRITIQUE = 400
+
+
+def auto_critique_enabled() -> bool:
+    """Auto-critique is on unless explicitly disabled via env."""
+    return os.getenv("AUTO_CRITIQUE_ENABLED", "true").strip().lower() not in (
+        "false", "0", "no", "off",
+    )
+
+
+def auto_critique_mode() -> str:
+    """Currently only 'annotate' is supported (append a note, never re-run)."""
+    return os.getenv("AUTO_CRITIQUE_MODE", "annotate").strip().lower() or "annotate"
+
+
+def should_auto_critique(question: str, draft_response: str) -> bool:
+    """Decide whether a draft is worth a self-review pass.
+
+    Conservative on purpose: only fires on substantial drafts for tasks whose
+    wording signals real stakes. Avoids burning a model call on small talk.
+    """
+    if not auto_critique_enabled():
+        return False
+    q = (question or "").lower()
+    draft = draft_response or ""
+    if len(draft) < _MIN_DRAFT_CHARS_FOR_CRITIQUE:
+        return False
+    return any(marker in q for marker in _HIGH_STAKES_MARKERS)
+
+
+def has_material_findings(critique_text: str) -> bool:
+    """True if the critique reports anything beyond 'ship it'.
+
+    Parses the structured verdict/sections produced by ``critique_response``.
+    Returns False for empty critiques, errors, or a clean bill of health so the
+    orchestrator only annotates when there is real signal.
+    """
+    if not critique_text:
+        return False
+    text = critique_text.strip()
+    low = text.lower()
+    if low.startswith("critique unavailable") or low.startswith("critique returned no content"):
+        return False
+
+    # Verdict gate: a clean "ship it" with no qualifier means no material issue.
+    verdict_match = re.search(r"##\s*verdict\s*\n+([^\n]+)", text, re.IGNORECASE)
+    if verdict_match:
+        verdict = verdict_match.group(1).strip().lower()
+        if verdict.startswith("ship it"):
+            # still check for non-empty critical/important sections below
+            pass
+        elif any(k in verdict for k in ("needs material", "reject", "minor fix", "ship with")):
+            return True
+
+    # Section gate: any non-empty Critical/Important section is material.
+    for header in ("critical findings", "important findings"):
+        section = _extract_section(text, header)
+        if _section_has_bullets(section):
+            return True
+    return False
+
+
+def _extract_section(text: str, header: str) -> str:
+    pattern = re.compile(
+        rf"##\s*{re.escape(header)}\s*\n(.*?)(?=\n##\s|\Z)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    m = pattern.search(text)
+    return m.group(1).strip() if m else ""
+
+
+def _section_has_bullets(section: str) -> bool:
+    for line in section.splitlines():
+        stripped = line.strip().lstrip("-*• ").strip()
+        if not stripped:
+            continue
+        # ignore explicit "none" placeholders
+        if stripped.lower() in ("none", "n/a", "(none)", "none.", "no issues"):
+            continue
+        if line.lstrip().startswith(("-", "*", "•")):
+            return True
+    return False

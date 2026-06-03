@@ -12,6 +12,7 @@ from typing import Annotated, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.audit import log_action
+from tools.compute import review_source
 from tools.mcp_tools import (
     MCP_CONTEXT7_TOOLS,
     MCP_DOCS_TOOLS,
@@ -36,82 +37,23 @@ async def review_code(
 ) -> str:
     """Review code for quality, performance, and security.
 
-    Returns structured feedback with severity ratings (🔴 critical,
-    🟡 warning, 🟢 ok) covering style, correctness, security, and
-    performance.
+    Runs real static analysis: Python is parsed into an AST and walked for
+    correctness/security/perf anti-patterns (with optional ruff/bandit when
+    installed); other languages use targeted heuristics. Returns a verdict
+    plus a findings table with severity ratings.
     """
     logger.info("Reviewing %s code (focus=%s)", language, focus)
 
-    lines = code_snippet.strip().splitlines()
-    line_count = len(lines)
-
-    findings: list[str] = []
-
-    # --- Style / quality checks ---
-    if focus in ("quality", "all"):
-        if line_count > 50:
-            findings.append("🟡 [quality] Function exceeds 50 lines — consider extracting helpers.")
-        if any(len(ln) > 120 for ln in lines):
-            findings.append("🟡 [quality] Lines exceed 120 chars — hurts readability.")
-        if not any("def " in ln or "function " in ln or "class " in ln for ln in lines):
-            findings.append("🟢 [quality] No structural issues detected in this snippet.")
-        else:
-            has_docstring = any('"""' in ln or "'''" in ln or "/**" in ln for ln in lines)
-            if not has_docstring:
-                findings.append("🟡 [quality] Missing docstring / JSDoc — add documentation.")
-
-    # --- Security checks ---
-    if focus in ("security", "all"):
-        dangerous_patterns = [
-            ("eval(", "🔴 [security] Use of eval() — high risk of injection."),
-            ("exec(", "🔴 [security] Use of exec() — high risk of injection."),
-            ("innerHTML", "🟡 [security] innerHTML usage — risk of XSS. Prefer textContent or sanitise."),
-            ("dangerouslySetInnerHTML", "🟡 [security] dangerouslySetInnerHTML — ensure input is sanitised."),
-            ("SELECT * FROM", "🟡 [security] SELECT * — prefer explicit columns; check for SQL injection."),
-            ("password", "🟡 [security] Possible credential handling — ensure hashing and no logging."),
-        ]
-        for pattern, msg in dangerous_patterns:
-            if any(pattern.lower() in ln.lower() for ln in lines):
-                findings.append(msg)
-        if not any(p.lower() in code_snippet.lower() for p, _ in dangerous_patterns):
-            findings.append("🟢 [security] No obvious security anti-patterns detected.")
-
-    # --- Performance checks ---
-    if focus in ("performance", "all"):
-        perf_patterns = [
-            ("nested for", "🟡 [performance] Nested loops detected — O(n²) risk."),
-            ("import *", "🟡 [performance] Wildcard import — increases bundle / startup cost."),
-            (".append(", "🟢 [performance] List append detected — consider list comprehension if in a loop."),
-        ]
-        for pattern, msg in perf_patterns:
-            if any(pattern.lower() in ln.lower() for ln in lines):
-                findings.append(msg)
-
-    if not findings:
-        findings.append("🟢 No issues found — code looks good.")
-
-    result = (
-        "═══════════════════════════════════════════\n"
-        "  📝  CODE REVIEW REPORT\n"
-        "═══════════════════════════════════════════\n"
-        f"  Language : {language}\n"
-        f"  Focus    : {focus}\n"
-        f"  Lines    : {line_count}\n"
-        "───────────────────────────────────────────\n"
-        "  FINDINGS\n"
-        "───────────────────────────────────────────\n"
-    )
-    for f in findings:
-        result += f"  {f}\n"
-    result += "═══════════════════════════════════════════"
+    result = review_source(code_snippet, language, focus)
+    rendered = result.render()
 
     log_action(
         "SeniorDevAgent",
         "review_code",
-        f"Language: {language}, Focus: {focus}, Lines: {line_count}",
-        f"Findings: {len(findings)}",
+        f"Language: {language}, Focus: {focus}, Lines: {result.line_count}",
+        f"Findings: {len(result.findings)}, Tools: {','.join(result.tools_run)}",
     )
-    return result
+    return rendered
 
 
 async def generate_implementation(

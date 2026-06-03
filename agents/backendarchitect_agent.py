@@ -12,6 +12,7 @@ from typing import Annotated
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tools.audit import log_action
+from tools.compute import design_architecture, design_schema
 from tools.mcp_tools import MCP_CONTEXT7_TOOLS, MCP_FILESYSTEM_TOOLS
 
 logger = logging.getLogger(__name__)
@@ -26,69 +27,53 @@ async def design_system_architecture(
     """Design a system architecture with service decomposition, data flow, and infrastructure."""
     log_action("BackendArchitectAgent", "design_architecture", f"system={system_name}, pattern={architecture_pattern}")
 
-    return (
-        f"SYSTEM ARCHITECTURE: {system_name}\n{'=' * 60}\n\n"
-        f"Pattern:  {architecture_pattern}\n"
-        f"Scale:    {expected_scale or 'TBD'}\n\n"
-        f"REQUIREMENTS\n{'─' * 60}\n  {requirements[:400]}\n\n"
-        f"SERVICE DECOMPOSITION\n{'─' * 60}\n"
-        f"  API Gateway      -> Auth, rate limiting, routing\n"
-        f"  User Service     -> Authentication, profiles, RBAC\n"
-        f"  Core Service     -> Business logic, domain operations\n"
-        f"  Data Service     -> Persistence, caching, search\n"
-        f"  Event Bus        -> Async messaging, event sourcing\n"
-        f"  Notification Svc -> Email, push, webhooks\n\n"
-        f"DATA FLOW\n{'─' * 60}\n"
-        f"  Client -> API Gateway -> Service -> DB/Cache\n"
-        f"  Service -> Event Bus -> Consumer Services\n\n"
-        f"NON-FUNCTIONAL REQUIREMENTS\n{'─' * 60}\n"
-        f"  Availability:  99.9% (8.76h downtime/year)\n"
-        f"  Latency:       P95 < 200ms\n"
-        f"  Throughput:    [Based on scale estimate]\n"
-        f"  Security:      Zero-trust, encryption at rest/transit\n"
-        f"  Observability: Structured logs, metrics, traces\n\n"
-        f"TRADE-OFFS\n"
-        f"  [Consistency vs. availability, cost vs. performance]\n"
-    )
+    combined = requirements
+    if expected_scale:
+        combined = f"{requirements}\n\nExpected scale: {expected_scale}"
+    pattern = "" if architecture_pattern.lower() == "hybrid" else architecture_pattern
+    result = design_architecture(system_name, combined, pattern)
+    return result.render()
 
 
 async def design_database_schema(
     domain: Annotated[str, "Business domain or data model description"],
-    key_entities: Annotated[str, "Comma-separated list of key entities"],
-    database_type: Annotated[str, "DB type: postgresql, mysql, mongodb, dynamodb, or multi"] = "postgresql",
+    entities: Annotated[
+        str,
+        (
+            "Entity specification. Accepts a rich grammar (mix freely, comma- or "
+            "newline-separated). "
+            "Bare names: 'users, orders, products'. "
+            "Typed fields: 'User(name:str, email:str unique, age:int?)' where "
+            "':type' sets the column type, 'unique' adds a UNIQUE constraint, and a "
+            "trailing '?' marks the column nullable (default NOT NULL). "
+            "Foreign keys: a '<table>_id' field (e.g. 'Order(total:decimal, user_id)') "
+            "becomes a real FK when the referenced table is present, and inherits the "
+            "referenced primary key's type automatically. "
+            "Types: int, bigint, str, text, bool, float, decimal, date, datetime, "
+            "uuid, json. Every table auto-gets an 'id' primary key plus created_at / "
+            "updated_at unless you supply your own 'id' or 'pk' column. "
+            "Prefer the rich grammar to get FK-correct, multi-column DDL instead of "
+            "id-only stub tables."
+        ),
+    ],
+    database_type: Annotated[str, "DB type: postgresql, mysql, sqlite, mongodb, dynamodb, or multi"] = "postgresql",
 ) -> str:
-    """Design a database schema with tables, indexes, and query patterns."""
+    """Design a runnable database schema from an entity specification.
+
+    Emits real CREATE TABLE DDL for the chosen SQL dialect plus a Mermaid
+    erDiagram for SQL targets, or a document-model sketch for NoSQL targets
+    (mongodb / dynamodb). Pass the full entity grammar — typed fields,
+    'unique', nullable '?', and '<table>_id' foreign keys — to get rich,
+    FK-correct schemas rather than id-only stub tables.
+
+    Examples of the ``entities`` argument::
+
+        users, orders, products
+        User(name:str, email:str unique, age:int?), Order(total:decimal, status:str, user_id)
+    """
     log_action("BackendArchitectAgent", "design_schema", f"domain={domain[:60]}, db={database_type}")
-    entities = [e.strip() for e in key_entities.split(",")]
-
-    result = (
-        f"DATABASE SCHEMA DESIGN\n{'=' * 60}\n\n"
-        f"Domain:   {domain}\n"
-        f"Database: {database_type}\n"
-        f"Entities: {', '.join(entities)}\n\n"
-        f"ENTITY RELATIONSHIP\n{'─' * 60}\n"
-    )
-    for entity in entities:
-        result += (
-            f"\n  {entity.upper()}\n"
-            f"    id          UUID PRIMARY KEY\n"
-            f"    created_at  TIMESTAMP WITH TIME ZONE\n"
-            f"    updated_at  TIMESTAMP WITH TIME ZONE\n"
-            f"    [domain-specific columns]\n"
-        )
-
-    result += (
-        f"\nINDEXING STRATEGY\n{'─' * 60}\n"
-        f"  - Primary keys on all tables (UUID)\n"
-        f"  - Covering indexes for frequent query patterns\n"
-        f"  - Partial indexes for filtered queries\n"
-        f"  - Full-text search indexes where needed\n\n"
-        f"PERFORMANCE TARGETS\n"
-        f"  - Query P95: < 100ms\n"
-        f"  - Write P95: < 50ms\n"
-        f"  - Connection pooling: pgbouncer or equivalent\n"
-    )
-    return result
+    result = design_schema(domain, entities, database_type)
+    return result.render()
 
 
 async def design_api(

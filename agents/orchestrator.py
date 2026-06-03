@@ -61,6 +61,29 @@ from toolkits import POWER_TOOLS_BASE
 
 logger = logging.getLogger(__name__)
 
+# ── Shared operating directive injected into EVERY specialist agent ────────
+# Hardens all agents to do thorough, verified, production-grade work rather
+# than shallow template answers. Kept short so it never crowds out the
+# agent-specific system message.
+BOIL_THE_OCEAN_DIRECTIVE = """
+
+## OPERATING STANDARD — BOIL THE OCEAN
+You work for a principal-level engineer. Mediocre or partial answers are unacceptable.
+For every non-trivial task:
+1. DO THE WHOLE THING. Deliver the complete, production-grade solution — not a sketch,
+   not a "here's how you would". Include edge cases, error handling, and trade-offs.
+2. VERIFY BEFORE YOU CLAIM. If you state a computational, numerical, or code-correctness
+   result, PROVE it: run `run_python` (or the relevant tool) in the sandbox and cite the
+   REAL output. Never assert a number, benchmark, or "this works" you have not executed.
+3. USE YOUR TOOLS. Search, fetch docs, read files, run code, and delegate to other agents
+   instead of guessing. Ground every claim in evidence.
+4. SELF-CRITIQUE on high-stakes work (architecture, security, code to be merged, cost,
+   anything irreversible): review your own draft for correctness and gaps before returning.
+5. BE HONEST. Separate facts from assumptions. Flag risks. If something cannot be verified,
+   say so explicitly rather than bluffing.
+Aim for "holy shit, it did all that" — complete, correct, verified, and immediately usable.
+"""
+
 # ── Base capability tools available to ALL specialist agents ──────────────
 BASE_CAPABILITY_TOOLS = (
     list(WEB_SEARCH_TOOLS)
@@ -267,7 +290,7 @@ class Orchestrator:
 
             try:
                 # Build augmented instructions
-                instructions = registration.system_message
+                instructions = registration.system_message + BOIL_THE_OCEAN_DIRECTIVE
                 try:
                     from skills.claude_skills_integration import build_skill_context_for_agent
                     skill_ctx = build_skill_context_for_agent(name)
@@ -605,6 +628,10 @@ class Orchestrator:
                         "Workaround: Type `reset`, then try your request with different wording."
                     )
 
+            # Opt-out self-review: on high-stakes tasks, run a rubber-duck pass
+            # and annotate (never re-run) the draft when it surfaces real issues.
+            final_response = await self._maybe_auto_critique(task, final_response, span)
+
             self._memory_store.save_turn(self._active_session_id, "user", task)
             if final_response:
                 self._memory_store.save_turn(self._active_session_id, "assistant", final_response)
@@ -616,6 +643,55 @@ class Orchestrator:
     async def handle_user_input(self, user_input: str) -> str:
         logger.info(f"User input: {user_input[:100]}...")
         return await self.route_task(user_input)
+
+    async def _maybe_auto_critique(self, task: str, final_response: str, span: Any = None) -> str:
+        """Annotate-only self-review for high-stakes drafts.
+
+        Runs the existing ``critique_response`` tool against our own draft. If it
+        finds material issues, append a short "Self-review" note so the user sees
+        the caveat. NEVER re-runs the coordinator and NEVER raises — any failure
+        (no creds, timeout, parse error) degrades silently to the original draft.
+        """
+        import asyncio
+
+        from tools.critique import (
+            auto_critique_mode,
+            critique_response,
+            has_material_findings,
+            should_auto_critique,
+        )
+
+        if not final_response or not should_auto_critique(task, final_response):
+            return final_response
+        if auto_critique_mode() != "annotate":
+            return final_response
+
+        try:
+            critique_text = await asyncio.wait_for(
+                critique_response(task, final_response, severity="important"),
+                timeout=float(os.getenv("AUTO_CRITIQUE_TIMEOUT", "30")),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Auto-critique skipped (%s)", type(exc).__name__)
+            if span is not None:
+                span.add_event("auto_critique.skipped", {"reason": type(exc).__name__})
+            return final_response
+
+        if not has_material_findings(critique_text):
+            if span is not None:
+                span.add_event("auto_critique.clean")
+            return final_response
+
+        if span is not None:
+            span.add_event("auto_critique.annotated")
+        log_action("Orchestrator", "auto_critique", task[:200], "material findings appended")
+        return (
+            f"{final_response}\n\n"
+            f"---\n"
+            f"### 🦆 Self-review (automated)\n"
+            f"I ran a rubber-duck pass on the answer above and flagged points worth a look:\n\n"
+            f"{critique_text.strip()}"
+        )
 
     def get_memory_summary(self) -> str:
         return self._memory_store.build_memory_summary(limit=50)
