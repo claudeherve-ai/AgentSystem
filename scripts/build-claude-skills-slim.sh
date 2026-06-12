@@ -67,6 +67,8 @@ DOMAINS=(
     "research"
     "compliance-os"
     "orchestration"
+    "microsoft-security"
+    "azure-platform"
 )
 
 # ── Additional files to copy ──────────────────────────────────────────────

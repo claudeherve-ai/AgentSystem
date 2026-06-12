@@ -53,6 +53,7 @@ AGENT_SKILL_MAP: dict[str, list[str]] = {
         "engineering/helm-chart-builder",
         "engineering/chaos-engineering",
         "project-management/skills",      # Atlassian, Jira, Confluence
+        "azure-platform",
     ],
     "RevenueAgent": [
         "c-level-advisor/skills/cro-advisor",
@@ -117,6 +118,7 @@ AGENT_SKILL_MAP: dict[str, list[str]] = {
     ],
     "BackendArchitectAgent": [
         "engineering",
+        "azure-platform",
     ],
     "DevOpsAutomatorAgent": [
         "engineering/docker-development",
@@ -124,20 +126,35 @@ AGENT_SKILL_MAP: dict[str, list[str]] = {
         "engineering/terraform-patterns",
         "engineering/helm-chart-builder",
         "engineering/chaos-engineering",
+        "azure-platform",
     ],
     "SecurityEngineerAgent": [
         "engineering/security-guidance",
         "ra-qm-team/skills/information-security-manager-iso27001",
+        "microsoft-security",
+        "azure-platform/azure-key-vault",
+        "azure-platform/azure-policy",
+        "azure-platform/azure-firewall",
+        "azure-platform/azure-network-security-design",
     ],
     "AIEngineerAgent": [
         "engineering/llm-cost-optimizer",
         "engineering/prompt-governance",
         "engineering/llm-wiki",
+        "azure-platform/microsoft-foundry",
+        "azure-platform/foundry-deploy-model",
+        "azure-platform/foundry-finetuning",
+        "azure-platform/azure-ai",
     ],
     # Legal / Compliance
     "LegalAdvisorAgent": [
         "c-level-advisor/skills/general-counsel-advisor",
         "ra-qm-team/skills/gdpr-dsgvo-expert",
+        "microsoft-security/purview-dlp-policy",
+        "microsoft-security/purview-ediscovery",
+        "microsoft-security/purview-audit",
+        "microsoft-security/microsoft-priva",
+        "azure-platform/azure-compliance",
     ],
     "LegalDocReviewAgent": [
         "ra-qm-team/skills/gdpr-dsgvo-expert",
@@ -163,6 +180,7 @@ AGENT_SKILL_MAP: dict[str, list[str]] = {
     # Enterprise
     "EnterpriseIntegrationAgent": [
         "engineering",
+        "azure-platform",
     ],
     # Problem Solver
     "ProblemSolverAgent": [
@@ -180,6 +198,10 @@ AGENT_SKILL_MAP: dict[str, list[str]] = {
     "SocialAgent": [
         "marketing-skill/skills/x-twitter-growth",
         "marketing-skill/skills/content-production",
+    ],
+    "AzureArchitectAgent": [
+        "azure-platform",
+        "microsoft-security",
     ],
 }
 
