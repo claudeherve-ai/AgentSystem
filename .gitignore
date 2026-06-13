@@ -1,36 +1,38 @@
-# Virtual environment
-.venv/
-
-# Secrets
-.env
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-dist/
-build/
-
-# IDE
-.vscode/
-.idea/
-
-# Memory database (local only)
-memory/*.db
-memory/conversation_log/*.json
-memory/workflows/
-
-# OS
-Thumbs.db
-Desktop.ini
-.DS_Store
-
-# Backups
-_backup_*/
-
-# Auth runtime artifacts
-memory/device_flow.json
-memory/token_cache.bin
-.venv-wsl/
-claude-skills
+1|# Virtual environment
+2|.venv/
+3|
+4|# Secrets
+5|.env
+6|
+7|# Python
+8|__pycache__/
+9|*.pyc
+10|*.pyo
+11|*.egg-info/
+12|dist/
+13|build/
+14|
+15|# IDE
+16|.vscode/
+17|.idea/
+18|
+19|# Memory database (local only)
+20|memory/*.db
+21|memory/conversation_log/*.json
+22|memory/workflows/
+23|
+24|# OS
+25|Thumbs.db
+26|Desktop.ini
+27|.DS_Store
+28|
+29|# Backups
+30|_backup_*/
+31|
+32|# Auth runtime artifacts
+33|memory/device_flow.json
+34|memory/token_cache.bin
+35|.venv-wsl/
+36|claude-skills
+37|
+claude-skills-slim

@@ -39,11 +39,11 @@ RUN curl -fsSL https://bun.sh/install | bash
 WORKDIR /app
 
 # Copy and install Python dependencies (cached layer)
-COPY requirements.txt .
+COPY agentsystem/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy AgentSystem application code
-COPY . .
+COPY agentsystem/ .
 
 # Copy slimmed claude-skills (pre-built by scripts/build-claude-skills-slim.sh or symlinked)
 COPY claude-skills-slim /app/claude-skills
