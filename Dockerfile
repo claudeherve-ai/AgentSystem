@@ -23,6 +23,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # Install browse.sh CLI (browser tools for agents)
 RUN npm install -g browse
 
+# ── OpenClaw (messaging gateway) ──────────────────────────────────────
+# Enables inbound Telegram/WhatsApp/Discord messaging.
+# Configured via OPENCLAW_API_URL / OPENCLAW_BRIDGE_PORT env vars.
+RUN npm install -g openclaw
+
 # Install xurl CLI (official X/Twitter API client)
 RUN curl -fsSL https://raw.githubusercontent.com/xdevplatform/xurl/main/install.sh | bash
 
@@ -36,11 +41,20 @@ ENV BUN_INSTALL="/root/.bun"
 ENV PATH="$BUN_INSTALL/bin:$PATH"
 RUN curl -fsSL https://bun.sh/install | bash
 
+# ── GBrain (cross-system knowledge graph) ─────────────────────────────
+# Installed via Bun from the canonical repo so the cloud can query the
+# same knowledge graph as local Hermes. Auth via env vars.
+RUN bun install -g github:garrytan/gbrain
+
 WORKDIR /app
 
 # Copy and install Python dependencies (cached layer)
 COPY agentsystem/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# ── Hermes Agent sidecar (MCP tools, 91 MS security skills, cron) ─────
+# Enables multi-model agent orchestration as a companion to AgentSystem.
+RUN pip install --no-cache-dir hermes-agent
 
 # Copy AgentSystem application code
 COPY agentsystem/ .
@@ -72,6 +86,11 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 ENV PORT=8501
 ENV APP_ENV=production
+# Disable Streamlit file watcher in container (avoids inotify limit errors
+# with 300+ skills files). Not needed — container images are immutable.
+ENV STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
+# Raise inotify limits for skills file watching (best-effort in container)
+RUN echo "fs.inotify.max_user_instances=1024" >> /etc/sysctl.conf 2>/dev/null || true
 
 # Expose Streamlit (8501) and FastAPI (8080)
 EXPOSE 8501 8080

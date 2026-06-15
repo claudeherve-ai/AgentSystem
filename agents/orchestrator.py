@@ -57,6 +57,7 @@ from tools.screen_context import SCREEN_CONTEXT_TOOLS
 from tools.web_fetch import WEB_FETCH_TOOLS
 from tools.web_search import WEB_SEARCH_TOOLS
 from tools.browse_tools import BROWSE_TOOLS
+from tools.data_parser import DATA_PARSER_TOOLS
 from toolkits import POWER_TOOLS_BASE
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,56 @@ logger = logging.getLogger(__name__)
 # Hardens all agents to do thorough, verified, production-grade work rather
 # than shallow template answers. Kept short so it never crowds out the
 # agent-specific system message.
+GROUNDING_DIRECTIVE = """
+
+## MANDATORY GROUNDING GATE — PASS BEFORE ANSWERING
+You MUST ground every answer in real evidence. Before presenting your final response,
+run through this checklist. If any check fails, you MUST search/read/run first:
+
+1. **TECHNOLOGY / PRODUCT / API / FRAMEWORK QUESTIONS**
+   → Search web or `microsoft_docs_search` FIRST. Cite at least one source URL.
+   → If the source disagrees with your knowledge, DEFER TO THE SOURCE.
+
+2. **CODE IN YOUR ANSWER**
+   → MUST be tested via `run_python` in the sandbox, OR you MUST cite an existing
+     implementation you have read. Never present untested code as correct.
+
+3. **NUMBERS / CALCULATIONS / METRICS**
+   → MUST show your calculation or cite the source of the number.
+   → If computed locally, include the `run_python` output.
+
+4. **"BEST PRACTICE" / "INDUSTRY STANDARD" / "RECOMMENDED" CLAIMS**
+   → MUST cite at least one verifiable source (URL, doc, benchmark).
+   → Unsourced claims of consensus are not evidence.
+
+5. **ARCHITECTURE / DESIGN DECISIONS**
+   → MUST run `critique_response` on your proposal before presenting.
+   → State what trade-offs you accepted and what alternatives you rejected.
+
+6. **FILE / DOCUMENT / CASE REFERENCES**
+   → MUST `read_file` or `case_search` to inspect the actual content.
+   → Never summarize a file you have not read.
+
+7. **WEB PAGE EXTRACTION (FETCHING LIVE CONTENT)**
+   → Always try `web_fetch` FIRST — it handles most pages fast and reliably.
+   → If `web_fetch` returns blank/incomplete (JS-rendered SPA, anti-bot), try `browse_health` to check
+     browser availability, then `browse_fetch` as the fallback for JS-heavy sites.
+   → KNOWN HOSTILE SITES (skip fetch entirely, go straight to web_search):
+     - reuters.com (DataDome)
+     - bloomberg.com (paywall + anti-bot)
+     - wsj.com (paywall)
+     - ft.com (paywall)
+     For these sites, `web_search` gives you headlines, dates, and enough context to cite.
+   → If `browse_fetch` is unavailable or blocked, DO NOT retry — immediately fall back to
+     `web_search`, extract headlines/summaries from search result snippets, and cite them.
+     Search snippets ARE valid sources — they come from the actual page <title> and <meta> tags.
+   → For news specifically, search "{topic} news today" to get the freshest results.
+   → Never present "tool unavailable" as a dead end. There is always another way.
+
+If you cannot ground a claim, say "I cannot verify this because [reason]" —
+never present speculation as fact.
+"""
+
 BOIL_THE_OCEAN_DIRECTIVE = """
 
 ## OPERATING STANDARD — BOIL THE OCEAN
@@ -97,6 +148,7 @@ BASE_CAPABILITY_TOOLS = (
     + list(MCP_GITHUB_TOOLS)
     + list(MCP_SEQUENTIAL_THINKING_TOOLS)
     + list(POWER_TOOLS_BASE)
+    + list(DATA_PARSER_TOOLS)
 )
 
 
@@ -110,6 +162,7 @@ class AgentRegistration:
     tools: list[Any] = field(default_factory=list)
     handoff_agents: list[str] = field(default_factory=list)  # Agents this agent can call
     model_profile: Optional[str] = None  # PR3: opt-in routing profile (None → catalog policy/legacy)
+    require_critique: bool = False  # If True, orchestrator forces a critique pass before returning
 
 
 def create_model_client() -> OpenAIChatCompletionClient:
@@ -185,7 +238,10 @@ class Orchestrator:
         self._memory_store = MEMORY_STORE
         self._active_session_id = self._memory_store.get_active_session_id()
         self._conversation_session = AgentSession(session_id=self._active_session_id)
-        self._creating: set[str] = set()  # Track agents being created to break circular handoffs
+        self._creating: set[str] = set()
+        # Session-scoped case memory — persists across agent handoffs within a session
+        self.case_context: dict[str, Any] = {}
+        self._artifact_dirs_initialized = False  # Track agents being created to break circular handoffs
 
     def _get_model_client(self) -> OpenAIChatCompletionClient:
         if self._model_client is None:
@@ -290,7 +346,7 @@ class Orchestrator:
 
             try:
                 # Build augmented instructions
-                instructions = registration.system_message + BOIL_THE_OCEAN_DIRECTIVE
+                instructions = registration.system_message + GROUNDING_DIRECTIVE + BOIL_THE_OCEAN_DIRECTIVE
                 try:
                     from skills.claude_skills_integration import build_skill_context_for_agent
                     skill_ctx = build_skill_context_for_agent(name)
@@ -389,7 +445,7 @@ class Orchestrator:
             "Use the daily briefing tool for requests about daily planning, urgent unread mail, follow-ups, or start-of-day summaries.\n"
             "Use the end-of-day review tool when the user asks to wrap the day, review what got done, preview tomorrow, or plan priorities for tomorrow.\n"
             "Use the draft replies tool when the user asks for draft replies, inbox triage, or help answering important unread mail — it saves drafts to Outlook for manual review.\n"
-            "When the request needs current information, vendor docs, news, or anything not in memory, use `web_search` then `web_fetch` to get the actual page text — do not bluff facts.\n"
+            "When the request needs current information, vendor docs, news, or anything not in memory, use `web_search` then `web_fetch` to get the actual page text — do not bluff facts. For news from known-hostile sites (reuters.com, bloomberg.com, wsj.com, ft.com), skip fetching and use web_search snippets — they give headlines/dates. Prefer accessible news sources: apnews.com, bbc.com/news, cnbc.com, theverge.com, arstechnica.com, techcrunch.com. NEWS WORKFLOW (mandatory for any news/latest request): 1) web_search for article URLs and snippets; 2) web_fetch each article URL — if blocked, use the snippet; 3) ONLY cite articles you fetched or have snippet evidence for; 4) include dates; 5) never present section hubs as news — find individual articles.\n"
             "When `web_fetch` fails because a page is JS-rendered (blank or incomplete), use `browse_fetch` instead — it runs a real Chrome browser to extract content from modern SPAs, Microsoft docs, Azure portals, and any React/Vue/Angular page.\n"
             "When the user points you at a local file or folder (PDF, DOCX, XLSX, JSON, log, code), use `read_file` / `list_dir` / `search_in_file` to inspect it before answering.\n"
             "When the request requires actually computing something, transforming data, or generating output, use `run_python` in the workspace and inspect the actual output before claiming success.\n"
@@ -499,6 +555,7 @@ class Orchestrator:
         tools: Optional[list] = None,
         handoff_agents: Optional[list[str]] = None,
         model_profile: Optional[str] = None,
+        require_critique: bool = False,
     ) -> AgentRegistration:
         """
         Register a subagent with the orchestrator.
@@ -520,6 +577,7 @@ class Orchestrator:
             tools=tools or [],
             handoff_agents=handoff_agents or [],
             model_profile=model_profile,
+            require_critique=require_critique,
         )
         self._registrations[name] = registration
         self._agents.pop(name, None)
@@ -632,6 +690,13 @@ class Orchestrator:
             # and annotate (never re-run) the draft when it surfaces real issues.
             final_response = await self._maybe_auto_critique(task, final_response, span)
 
+            # ── Enforcement pipeline (Phase 1) ──────────────────────────
+            # Classify domain → verify grounding → audit completion.
+            # Non-blocking by default: annotates issues, never blocks.
+            final_response = await self._run_enforcement_pipeline(
+                task, final_response, span
+            )
+
             self._memory_store.save_turn(self._active_session_id, "user", task)
             if final_response:
                 self._memory_store.save_turn(self._active_session_id, "assistant", final_response)
@@ -701,6 +766,71 @@ class Orchestrator:
         self._conversation_session = AgentSession(session_id=self._active_session_id)
         log_action("Orchestrator", "reset_session", output_summary=f"session_id={self._active_session_id}")
         return self._active_session_id
+
+    async def _run_enforcement_pipeline(
+        self, task: str, final_response: str, span: Any = None
+    ) -> str:
+        """Run the enforcement pipeline: classify → verify grounding → audit completion.
+
+        Non-blocking by default (ENFORCEMENT_MODE=strict in env to block).
+        Annotates the response with enforcement findings. Never raises.
+        """
+        import os
+
+        try:
+            from enforcement.domain_classifier import classify_domain
+            from enforcement.grounding_check import verify_grounding
+            from enforcement.completion_audit import audit_completion
+
+            # Step 1: Classify domain
+            classification = classify_domain(task)
+            if span:
+                span.set_attribute("enforcement.domains", ",".join(classification.domains))
+                span.set_attribute("enforcement.high_stakes", classification.is_high_stakes)
+                span.set_attribute("enforcement.confidence", classification.confidence)
+
+            # Step 2: Verify grounding
+            grounding = verify_grounding(
+                final_response,
+                required_tools=classification.required_tools,
+                domains=classification.domains,
+                specialist_name="orchestrator",
+            )
+
+            # Step 3: Audit completion
+            completion = audit_completion(final_response)
+
+            # Build annotation
+            annotations: list[str] = []
+            if grounding.annotation:
+                annotations.append(grounding.annotation)
+            if completion.annotation:
+                annotations.append(completion.annotation)
+
+            if annotations:
+                enforcement_note = "\n\n---\n**🔍 Enforcement**\n" + "\n".join(
+                    f"- {a}" for a in annotations
+                )
+                final_response = final_response + enforcement_note
+
+            if span:
+                span.set_attribute("enforcement.grounding_passed", grounding.passed)
+                span.set_attribute("enforcement.completion_passed", completion.completed)
+                span.set_attribute("enforcement.evidence_quality", grounding.evidence_quality)
+
+            # Strict mode: log failures but never block (annotation is sufficient)
+            if not grounding.passed or not completion.completed:
+                logger.warning(
+                    "Enforcement flagged issues: grounding=%s completion=%s domains=%s",
+                    "PASS" if grounding.passed else "FAIL",
+                    "PASS" if completion.completed else "FAIL",
+                    classification.domains,
+                )
+
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Enforcement pipeline degraded: %s", exc)
+
+        return final_response
 
     def status(self) -> dict[str, Any]:
         return {

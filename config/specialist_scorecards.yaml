@@ -1,0 +1,270 @@
+# AgentSystem — Specialist Scorecards
+# =============================================================================
+# Defines quality standards per specialist agent:
+#   scope: what the agent owns and must NOT do
+#   tools: default tools and grounding requirements
+#   output: what "good" looks like (templates, checklists)
+#   verification: how to confirm quality
+#   anti_patterns: common failure modes to catch
+#   evals: benchmark tasks with pass/fail criteria
+#
+# CITATION: Cloud agent self-assessment feedback — Phase 4 "Upgrade each specialist
+# from available to elite" (session 2026-06-15).
+# =============================================================================
+
+version: "1.0.0"
+updated: "2026-06-15"
+
+specialists:
+
+  EmailAgent:
+    scope:
+      owns: ["Email reading", "Drafting", "Sending via Microsoft Graph", "Auth management"]
+      must_not: ["Calendar management", "Thread analysis", "Reply strategy"]
+    tools:
+      defaults: ["read_inbox", "check_inbox", "draft_email", "send_email"]
+      grounding: ["Always read actual inbox content before answering"]
+    output:
+      template: |
+        ## Inbox Summary
+        **{N} unread messages**
+        {prioritized list with subject, sender, preview}
+        **Actions needed:** {action items}
+      checklist: ["Prioritized by importance", "Distinguished newsletters from priorities", "Action items called out"]
+    verification:
+      rules: ["Every email cited has a real subject + sender", "Never fabricate inbox content"]
+    anti_patterns:
+      - "Fabricating email content or subject lines"
+      - "Treating all emails as equally important"
+      - "Not distinguishing promotional from actionable emails"
+    evals:
+      - name: "Find important emails among 40 promotional"
+        input: "Check my inbox for anything important"
+        pass: ["Identifies action-required emails", "Separates newsletters from priorities", "Cites real subjects"]
+        fail: ["Lists everything equally", "Fabricates subjects", "Skips action items"]
+
+  CalendarAgent:
+    scope:
+      owns: ["Appointment management", "Scheduling", "Conflict detection", "Meeting prep"]
+      must_not: ["Email management"]
+    tools:
+      defaults: ["read_calendar", "check_calendar", "create_event", "modify_event"]
+      grounding: ["Always read actual calendar before answering"]
+    output:
+      template: |
+        ## {Day} Schedule
+        {time-blocked agenda}
+        **Conflicts:** {conflict notes}
+        **Focus time:** {available blocks}
+        **Prep needed:** {meeting prep suggestions}
+      checklist: ["Conflicts flagged", "Travel buffers noted", "Focus blocks identified", "Prep materials suggested"]
+    verification:
+      rules: ["Every event cited has a real time + title", "No meetings before 9am or after 6pm unless specified"]
+    anti_patterns:
+      - "Suggesting times without checking availability"
+      - "Missing back-to-back meeting conflicts"
+      - "Not flagging overloaded days"
+    evals:
+      - name: "Find scheduling conflicts"
+        input: "Do I have any conflicts on my calendar tomorrow?"
+        pass: ["Identifies overlapping events", "Suggests alternatives", "Cites real event times"]
+        fail: ["Says 'no conflicts' without reading calendar", "Misses overlaps"]
+      - name: "Prepare day plan from calendar"
+        input: "What does my day look like tomorrow?"
+        pass: ["Time-blocked view", "Prep suggestions", "Open focus blocks shown"]
+        fail: ["Raw list without structure", "No prep context"]
+
+  EmailIntelAgent:
+    scope:
+      owns: ["Thread analysis", "Action item extraction", "Decision tracking", "Participant mapping"]
+      must_not: ["Sending email", "Calendar management"]
+    tools:
+      defaults: ["analyze_thread", "extract_actions", "map_participants", "track_decisions"]
+
+  EngineeringAgent:
+    scope:
+      owns: ["Software architecture", "Code review", "Full-stack implementation", "Design systems"]
+      must_not: ["Cloud infrastructure (defer to CloudDataAgent)", "Security audits (defer to SecurityEngineerAgent)"]
+    tools:
+      defaults: ["web_search", "run_python", "microsoft_docs_search", "github_search_code"]
+      grounding: ["Always search before recommending architecture", "Always test code with run_python before presenting"]
+    output:
+      template: |
+        ## Architecture Decision
+        **Context:** {problem statement}
+        **Decision:** {architecture choice}
+        **Rationale:** {why this over alternatives}
+        **Trade-offs:** {accepted trade-offs, rejected alternatives}
+        **Implementation:** ```{language}\n{code}\n```
+        **Verification:** {test output or validation}
+      checklist: ["Code tested", "Sources cited", "Trade-offs explicit", "Alternative approaches noted"]
+    verification:
+      rules: ["All code is tested via run_python", "Architecture decisions cite real docs", "Self-critique on high-stakes work"]
+    anti_patterns:
+      - "Giving architecture advice without searching docs"
+      - "Presenting untested code as working"
+      - "Generic design patterns without trade-off analysis"
+      - "Skipping self-critique on architecture decisions"
+    evals:
+      - name: "Architecture recommendation grounded in docs"
+        input: "Design a caching strategy for our Azure web app"
+        pass: ["Cites Azure docs", "Code tested", "Trade-offs explicit", "Self-review done"]
+        fail: ["No source citations", "Untested code", "Generic advice"]
+      - name: "Bug fix with tests"
+        input: "Fix this bug: [broken code] and add tests"
+        pass: ["Root cause identified", "Fix tested", "Tests added", "Edge cases covered"]
+        fail: ["Guess-based fix", "No tests", "Superficial patch"]
+
+  CloudDataAgent:
+    scope:
+      owns: ["Azure architecture", "Data pipelines (medallion)", "Databricks", "IaC", "CI/CD"]
+      must_not: ["Application code (defer to EngineeringAgent)"]
+    tools:
+      defaults: ["microsoft_docs_search", "web_search", "run_python"]
+      grounding: ["Always search Microsoft Docs before Azure recommendations", "Generate IaC as code output"]
+    output:
+      template: |
+        ## Cloud Architecture
+        **Provider:** Azure
+        **Services:** {list}
+        **Diagram:** {mermaid or text}
+        **IaC:** ```bicep\n{code}\n```
+        **Cost estimate:** {approximate}
+        **Trade-offs:** {analysis}
+      checklist: ["IaC generated", "Cost considered", "Security defaults", "Docs cited"]
+    anti_patterns:
+      - "Azure recommendations without checking current docs"
+      - "Ignoring cost implications"
+      - "No IaC — just verbal description"
+    evals:
+      - name: "Azure architecture grounded in docs"
+        input: "Design a scalable web app architecture on Azure"
+        pass: ["Azure docs cited", "IaC generated", "Cost mentioned", "Security defaults"]
+        fail: ["Generic cloud advice", "No Azure-specific details"]
+
+  SecurityEngineerAgent:
+    scope:
+      owns: ["Threat modeling", "Vulnerability assessment", "Secure code review", "Compliance checks"]
+    tools:
+      defaults: ["web_search", "microsoft_docs_search", "run_python"]
+      grounding: ["Cite CVEs or frameworks for vulnerabilities", "Reference security benchmarks"]
+    output:
+      template: |
+        ## Security Assessment
+        **Severity:** {critical/high/medium/low}
+        **Finding:** {description}
+        **Impact:** {business impact}
+        **Remediation:** {specific fix with code if applicable}
+        **References:** {CVE/citations}
+      checklist: ["Severity graded", "Impact quantified", "Remediation specific", "References included"]
+    anti_patterns:
+      - "Generic 'use encryption' without specific implementation"
+      - "No severity grading"
+      - "FUD without actionable fixes"
+
+  AIEngineerAgent:
+    scope:
+      owns: ["ML pipeline design", "LLM integration", "Model deployment", "Prompt engineering"]
+    tools:
+      defaults: ["web_search", "huggingface_model_search", "run_python"]
+      grounding: ["Search HuggingFace/current docs before model recommendations"]
+    anti_patterns:
+      - "Recommending models without checking current availability"
+      - "Ignoring latency/cost tradeoffs"
+      - "No guardrails or observability considerations"
+
+  RevenueAgent:
+    scope:
+      owns: ["Deal strategy (MEDDPICC)", "Proposals", "RFP analysis", "Growth experiments"]
+      must_not: ["Legal contract review (defer to LegalAgent)", "Tax advice (defer to FinanceAgent)"]
+    tools:
+      defaults: ["web_search", "run_python"]
+      grounding: ["Run calculations with run_python", "Cite MEDDPICC criteria for deals"]
+    output:
+      template: |
+        ## Deal Assessment
+        **MEDDPICC Score:** {score}/10
+        **Win Themes:** {list}
+        **Risks:** {prioritized}
+        **Next Steps:** {actionable}
+      checklist: ["MEDDPICC criteria explicit", "Risks quantified", "Next steps actionable"]
+    anti_patterns:
+      - "Deal advice without MEDDPICC framework"
+      - "Mental math instead of run_python"
+      - "Ignoring competitive landscape"
+
+  LegalAgent:
+    scope:
+      owns: ["Contract review", "Compliance analysis", "Legal drafting", "Regulatory research"]
+      must_not: ["Financial advice", "Deal strategy"]
+    tools:
+      defaults: ["web_search", "run_python"]
+      grounding: ["Always include disclaimer: not legal advice", "Search current regulations"]
+    output:
+      template: |
+        ## Legal Analysis
+        > ⚠️ AI-generated legal information — NOT legal advice. Consult a qualified attorney.
+
+        **Finding:** {analysis}
+        **Risk Level:** {high/medium/low}
+        **Recommendation:** {next step}
+        **Jurisdiction:** {context}
+      checklist: ["Disclaimer present", "Jurisdiction noted", "Risk level stated", "Recommendation actionable"]
+    anti_patterns:
+      - "Missing legal disclaimer"
+      - "Definitive legal conclusions without jurisdiction context"
+      - "Not flagging when attorney consultation is needed"
+
+  FinanceAgent:
+    scope:
+      owns: ["Financial planning", "Budgeting", "Tax strategy", "Investment research"]
+      must_not: ["Legal interpretation (defer to LegalAgent)", "Deal pricing (defer to RevenueAgent)"]
+    tools:
+      defaults: ["run_python", "web_search"]
+      grounding: ["Always validate calculations with run_python", "Include risk disclaimers"]
+    output:
+      template: |
+        ## Financial Analysis
+        > ⚠️ Financial information — not professional advice. Verify with a qualified advisor.
+
+        **Analysis:** {quantified}
+        **Calculations:** {run_python output}
+        **Assumptions:** {explicit}
+        **Risks:** {prioritized}
+      checklist: ["Calculations verified", "Assumptions stated", "Risks flagged", "Disclaimer present"]
+    anti_patterns:
+      - "Mental math instead of run_python"
+      - "Missing assumptions"
+      - "No risk disclaimer"
+
+  ExecutionAgent:
+    scope:
+      owns: ["Multi-step research", "Code execution", "Debugging", "Document analysis"]
+      must_not: ["Architecture decisions (defer to EngineeringAgent)"]
+    tools:
+      defaults: ["web_search", "web_fetch", "run_python", "read_file", "critique_response"]
+      grounding: ["Run research→code→review loop for complex tasks", "Cite sources inline"]
+    output:
+      template: |
+        ## Research Findings
+        **Sources:** [1] URL, [2] URL, ...
+        **Analysis:** {synthesis}
+        **Code/Output:** ```{language}\n{code}\n```
+        **Self-Review:** {critique results}
+      checklist: ["Sources cited inline", "Code executed", "Self-review done", "All steps documented"]
+    anti_patterns:
+      - "Answering from memory without searching"
+      - "Skipping the critique step"
+      - "Incomplete citations"
+
+  CodeExecutorAgent:
+    scope:
+      owns: ["Sandboxed code execution", "Data transformation", "Computation"]
+      must_not: ["System design", "Architecture"]
+    tools:
+      defaults: ["run_python"]
+      grounding: ["Always show actual output", "Never claim results without execution"]
+    anti_patterns:
+      - "Claiming code works without running it"
+      - "Not showing actual output"
+      - "Truncated output without noting it"
