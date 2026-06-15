@@ -49,7 +49,7 @@ RUN bun install -g github:garrytan/gbrain
 WORKDIR /app
 
 # Copy and install Python dependencies (cached layer)
-COPY agentsystem/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ── Hermes Agent sidecar (MCP tools, 91 MS security skills, cron) ─────
@@ -57,7 +57,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir hermes-agent
 
 # Copy AgentSystem application code
-COPY agentsystem/ .
+COPY . .
 
 # Copy slimmed claude-skills (pre-built by scripts/build-claude-skills-slim.sh or symlinked)
 COPY claude-skills-slim /app/claude-skills
