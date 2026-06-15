@@ -1,0 +1,20 @@
+# Docker build context excludes — speeds up `COPY . .` and prevents
+# accidental inclusion of local venvs, caches, and backups.
+.venv
+.venv-wsl
+__pycache__
+*.pyc
+.git
+.gitignore
+.dockerignore
+.env
+.mypy_cache
+.pytest_cache
+.ruff_cache
+node_modules
+_backup_*
+memory/*.db
+memory/*.log
+logs/
+*.tar.gz
+.azure/
