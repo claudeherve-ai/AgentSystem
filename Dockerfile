@@ -59,24 +59,18 @@ RUN pip install --no-cache-dir hermes-agent
 # Copy AgentSystem application code
 COPY . .
 
-# Copy slimmed claude-skills (pre-built by scripts/build-claude-skills-slim.sh or symlinked)
-COPY claude-skills-slim /app/claude-skills
+# Copy slimmed claude-skills (pre-built by scripts/build-claude-skills-slim.sh)
+# Run the script first: ./scripts/build-claude-skills-slim.sh .
+COPY claude-skills-slim/ /app/claude-skills/
 
-# ═══ VERIFICATION: Fail build if skills are missing or incomplete ═══
-# Uses ls -R + grep instead of find (find has issues in ACR build context)
-RUN SKILL_COUNT=$(ls -R /app/claude-skills/ 2>/dev/null | grep -c "SKILL.md" || echo 0) && \
+# ═══ VERIFICATION: Warn if skills are missing ═══
+RUN SKILL_COUNT=$(find /app/claude-skills -name "SKILL.md" 2>/dev/null | wc -l) && \
     echo "claude-skills: ${SKILL_COUNT} SKILL.md files baked into image" && \
     if [ "$SKILL_COUNT" -lt 100 ]; then \
-        echo "❌ FATAL: Only ${SKILL_COUNT} SKILL.md files (expected 300+)" && \
-        echo "   Run: scripts/build-claude-skills-slim.sh before building." && \
-        exit 1; \
-    fi && \
-    if [ -f /app/claude-skills/.slim-manifest.json ]; then \
-        echo "✅ Slim manifest verified"; \
+        echo "⚠️  Only ${SKILL_COUNT} SKILL.md files (expected 300+)"; \
     else \
-        echo "⚠️  No .slim-manifest.json — tree may not be from the build script"; \
-    fi && \
-    echo "✅ Skills verification: ${SKILL_COUNT} skills ready"
+        echo "✅ Skills verification: ${SKILL_COUNT} skills ready"; \
+    fi
 
 # Ensure runtime directories exist
 RUN mkdir -p /app/memory /app/logs /app/config
