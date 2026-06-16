@@ -841,10 +841,12 @@ class Orchestrator:
                 span.set_attribute("enforcement.completion_passed", completion.completed)
                 span.set_attribute("enforcement.evidence_quality", grounding.evidence_quality)
 
-            # Strict mode: log failures but never block (annotation is sufficient)
+            # Log enforcement findings at INFO level — these are expected
+            # annotations, not errors. They surface when an agent answered
+            # from memory instead of evidence, which is the pipeline working.
             if not grounding.passed or not completion.completed:
-                logger.warning(
-                    "Enforcement flagged issues: grounding=%s completion=%s domains=%s",
+                logger.info(
+                    "Enforcement: grounding=%s completion=%s domains=%s",
                     "PASS" if grounding.passed else "FAIL",
                     "PASS" if completion.completed else "FAIL",
                     classification.domains,
