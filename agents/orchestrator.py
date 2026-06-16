@@ -823,18 +823,19 @@ class Orchestrator:
             # Step 3: Audit completion
             completion = audit_completion(final_response)
 
-            # Build annotation
-            annotations: list[str] = []
-            if grounding.annotation:
-                annotations.append(grounding.annotation)
-            if completion.annotation:
-                annotations.append(completion.annotation)
-
-            if annotations:
-                enforcement_note = "\n\n---\n**🔍 Enforcement**\n" + "\n".join(
-                    f"- {a}" for a in annotations
-                )
-                final_response = final_response + enforcement_note
+            # Build annotation — only append when ENFORCEMENT_ANNOTATE=true
+            # (off by default — keeps UI clean; check logs for enforcement data)
+            if os.getenv("ENFORCEMENT_ANNOTATE", "").strip().lower() in ("true", "1", "yes"):
+                annotations: list[str] = []
+                if grounding.annotation:
+                    annotations.append(grounding.annotation)
+                if completion.annotation:
+                    annotations.append(completion.annotation)
+                if annotations:
+                    enforcement_note = "\n\n---\n**🔍 Enforcement**\n" + "\n".join(
+                        f"- {a}" for a in annotations
+                    )
+                    final_response = final_response + enforcement_note
 
             if span:
                 span.set_attribute("enforcement.grounding_passed", grounding.passed)
