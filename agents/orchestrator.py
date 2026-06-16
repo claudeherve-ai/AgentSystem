@@ -214,6 +214,22 @@ def create_model_client() -> OpenAIChatCompletionClient:
     )
 
 
+def _is_trivial_chat(task: str) -> bool:
+    """True for greetings, acknowledgments, and pure social chat that
+    don't need grounding enforcement."""
+    task_lower = task.strip().lower()
+    trivial_patterns = [
+        "hey", "hi", "hello", "yo", "sup", "hola",
+        "thanks", "thank you", "thx", "ty",
+        "ok", "okay", "kk", "got it", "cool",
+        "good morning", "good afternoon", "good evening",
+        "how are you", "what's up", "howdy",
+        "bye", "see you", "later", "cya",
+        "lol", "haha", "nice", "awesome",
+    ]
+    return task_lower in trivial_patterns or len(task_lower) < 3
+
+
 def get_default_agent_options() -> dict[str, Any]:
     model_cfg = get_model_config()
     options: dict[str, Any] = {
@@ -774,8 +790,15 @@ class Orchestrator:
 
         Non-blocking by default (ENFORCEMENT_MODE=strict in env to block).
         Annotates the response with enforcement findings. Never raises.
+
+        Skips trivial messages (greetings, < 20 chars, pure social chat).
         """
         import os
+
+        # Skip trivial messages — no grounding needed for greetings/chit-chat
+        task_stripped = (task or "").strip()
+        if len(task_stripped) < 20 or _is_trivial_chat(task_stripped):
+            return final_response
 
         try:
             from enforcement.domain_classifier import classify_domain

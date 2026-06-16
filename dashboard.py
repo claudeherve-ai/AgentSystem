@@ -133,6 +133,31 @@ st.markdown(
         border-color: rgba(124,92,255,0.7) !important;
         box-shadow: 0 0 0 2px rgba(124,92,255,0.25) !important;
     }
+    /* Send button — make it visible and clickable */
+    [data-testid="stChatInput"] button {
+        background: linear-gradient(135deg, var(--accent-a), #9b6dff) !important;
+        border: none !important;
+        border-radius: 10px !important;
+        color: white !important;
+        cursor: pointer !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        transition: all 0.15s ease !important;
+    }
+    [data-testid="stChatInput"] button:hover {
+        background: linear-gradient(135deg, #9b6dff, var(--accent-b)) !important;
+        box-shadow: 0 0 12px rgba(124,92,255,0.5) !important;
+    }
+    [data-testid="stChatInput"] button:disabled {
+        opacity: 0.4 !important;
+        cursor: not-allowed !important;
+    }
+    /* Input container background */
+    [data-testid="stChatInput"] {
+        background: rgba(13,16,32,0.6) !important;
+        border-radius: 16px !important;
+        padding: 4px !important;
+    }
 
     /* Radio nav → pill list */
     [data-testid="stSidebar"] [role="radiogroup"] label {
