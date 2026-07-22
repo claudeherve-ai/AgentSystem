@@ -55,6 +55,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ── Hermes Agent sidecar (MCP tools, 91 MS security skills, cron) ─────
 # Enables multi-model agent orchestration as a companion to AgentSystem.
 RUN pip install --no-cache-dir hermes-agent
+# hermes-agent 0.19.0 pins openai==2.24.0, which LACKS ResponseToolSearchCall
+# that agent-framework-openai needs (symbol exists only in openai 2.25–2.36).
+# Re-assert our pin after the sidecar install.
+RUN pip install --no-cache-dir 'openai==2.25.0'
 
 # Copy AgentSystem application code
 COPY . .
