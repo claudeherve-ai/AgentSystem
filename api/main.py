@@ -35,6 +35,28 @@ from api.middleware.telemetry import TelemetryMiddleware
 
 logger = logging.getLogger("agentsystem.api")
 
+# ── Azure Monitor / Application Insights ─────────────────────────────────────
+# Activated when APPLICATIONINSIGHTS_CONNECTION_STRING is set (container app
+# wires it from ACA secrets). Auto-instruments FastAPI/requests/httpx and
+# forwards traces, metrics, and logs to App Insights. Best-effort: any failure
+# must never block the API.
+try:
+    if os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+        from azure.monitor.opentelemetry import configure_azure_monitor
+
+        configure_azure_monitor(
+            logger_name="agentsystem",
+            instrumentation_options={
+                "fastapi": {"enabled": True},
+                "requests": {"enabled": True},
+                "urllib": {"enabled": True},
+                "urllib3": {"enabled": True},
+            },
+        )
+        logger.info("Azure Monitor (App Insights) instrumentation enabled")
+except Exception as _ai_exc:  # noqa: BLE001
+    logger.debug("Azure Monitor instrumentation skipped: %s", _ai_exc)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -59,4 +59,4 @@ openpyxl>=3.1.0
 # rides on agent-framework-core (already pinned above). Voice is also fully
 # fail-closed: the OpenAI Realtime adapter only activates when the `openai`
 # package (a transitive dep of agent-framework-openai above) is importable
-# AND VOICE_ENABLED=true with a real OPENAI_API_KEY. No extra install needed.
+# AND VOICE_ENABLED=true with a real OPENAI_API_KEY. No extra install needed.azure-monitor-opentelemetry>=1.6.0
