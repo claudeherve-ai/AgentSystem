@@ -48,9 +48,9 @@ RUN bun install -g github:garrytan/gbrain
 
 WORKDIR /app
 
-# Copy and install Python dependencies (cached layer)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy and install Python dependencies (cached layer, lockfile-reproducible)
+COPY requirements.txt requirements.lock ./
+RUN pip install --no-cache-dir -r requirements.lock
 
 # ── Hermes Agent sidecar (MCP tools, 91 MS security skills, cron) ─────
 # Enables multi-model agent orchestration as a companion to AgentSystem.
