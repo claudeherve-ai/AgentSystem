@@ -1,7 +1,7 @@
 # AgentSystem
 
 A multi-agent enterprise orchestrator built on the **Microsoft Agent Framework**.
-A single orchestrator routes each request to one of **18 specialist subagents**
+A single orchestrator routes each request to one of **19 specialist subagents**
 (email, calendar, engineering, cloud/data, security, finance, legal, sales,
 product/project management, and more), each backed by real tools and optional
 [MCP](https://modelcontextprotocol.io) servers.

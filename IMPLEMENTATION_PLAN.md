@@ -1,7 +1,7 @@
 ---
 title: "AgentSystem Upgrade — Boil the Ocean Implementation Plan"
 created: 2026-06-15
-status: in_progress
+status: complete
 ---
 
 # AgentSystem Upgrade Plan
@@ -25,7 +25,7 @@ The orchestrator already has grounding directives, auto-critique, plan/project t
 - Plan/project tools wired to orchestrator ✓
 - Memory tools (durable memory, session context) ✓
 - Email/Calendar agents working (delegated auth) ✓
-- 18 specialist agents registered ✓
+- 19 specialist agents registered ✓
 - MCP tools: Docs, GitHub, DeepWiki, Context7, HuggingFace, Notion, Sentry, Atlassian ✓
 - Model routing with fallback chains ✓
 - Content filter auto-recovery ✓
