@@ -2,8 +2,8 @@
 agent-framework-core>=1.0.0,<2
 agent-framework-openai>=1.0.0,<2
 # Pin openai: agent-framework-openai 1.x imports ResponseToolSearchCall which was
-# removed in openai>=2.4x. openai 2.36.0 is the known-good version (matches local venv).
-openai==2.36.0
+# introduced in 2.25 and removed again after 2.36. Pinning 2.25.0 the newest version that still exports it.
+openai==2.25.0
 python-dotenv>=1.0.0
 pydantic>=2.0.0
 aiosqlite>=0.20.0
