@@ -62,32 +62,83 @@ def _resolve_redirect(href: str) -> str:
     return href
 
 
+# ── URL validation and filtering ────────────────────────────────────────────
+
+# Patterns that indicate a section hub / category page, not an individual article
+_HUB_URL_PATTERNS = [
+    r"/hub/",
+    r"/category/",
+    r"/tag/",
+    r"/topics/",
+    r"/topic/",
+    r"/section/",
+]
+
+# Broken redirect artifacts that should be discarded
+_BROKEN_URL_PATTERNS = [
+    r"^</",           # HTML fragment like </clev?...
+    r"^javascript:",
+    r"^data:",
+    r"^#",
+    r"StartpageResultClick",
+    r"uddg=",          # Raw DuckDuckGo redirect wrapper (should be unwrapped, not kept)
+]
+
+
+def _is_valid_article_url(url: str) -> bool:
+    """Check if a URL looks like a real article, not a hub or broken redirect."""
+    if not url or not url.startswith("http"):
+        return False
+
+    for pattern in _BROKEN_URL_PATTERNS:
+        if re.search(pattern, url, re.IGNORECASE):
+            return False
+
+    return True
+
+
+def _is_hub_url(url: str) -> bool:
+    """Check if a URL is a section hub / category / topic page."""
+    for pattern in _HUB_URL_PATTERNS:
+        if re.search(pattern, url, re.IGNORECASE):
+            return True
+
+    # Also check if the URL looks like a homepage/root with no article path
+    parsed = urlparse(url)
+    path = parsed.path.rstrip("/")
+    if not path or path == "":
+        return True  # bare domain root
+
+    return False
+
+
 # ── Backend 1: ddgs library ────────────────────────────────────────────────
 
-async def _search_ddgs(query: str, max_results: int) -> list[dict]:
-    """Search using the ddgs library (DuckDuckGo, more robust)."""
+async def _search_ddgs(query: str, max_results: int) -> tuple[list[dict], str]:
+    """Search using the ddgs library. Returns (results, diagnostic)."""
     try:
         from ddgs import DDGS
     except ImportError:
-        logger.debug("ddgs library not installed, skipping ddgs backend")
-        return []
+        return [], "ddgs library not installed"
 
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=max_results))
-        return [
+            raw = list(ddgs.text(query, max_results=max_results))
+        results = [
             {"title": r.get("title", ""), "url": r.get("href", ""), "snippet": r.get("body", "")}
-            for r in results
+            for r in raw
         ]
+        if not results:
+            return [], "ddgs: 0 results returned (no error)"
+        return results, f"ddgs: {len(results)} results OK"
     except Exception as exc:
-        logger.warning("ddgs search failed: %s", exc)
-        return []
+        return [], f"ddgs error: {type(exc).__name__}: {exc}"
 
 
 # ── Backend 2: DuckDuckGo HTML scraping ────────────────────────────────────
 
-async def _search_ddg_html(query: str, max_results: int = 10) -> list[dict]:
-    """Search using DuckDuckGo HTML scraping (original approach)."""
+async def _search_ddg_html(query: str, max_results: int = 10) -> tuple[list[dict], str]:
+    """Search using DuckDuckGo HTML scraping. Returns (results, diagnostic)."""
     try:
         async with httpx.AsyncClient(
             timeout=15.0,
@@ -114,19 +165,25 @@ async def _search_ddg_html(query: str, max_results: int = 10) -> list[dict]:
             if i < len(snippets):
                 snippet = _clean_text(snippets[i])
             results.append({"title": title, "url": url, "snippet": snippet})
-        return results
+
+        if not results:
+            return [], "ddg_html: page returned but no result links parsed"
+        return results, f"ddg_html: {len(results)} results OK"
+    except httpx.ConnectError as exc:
+        return [], f"ddg_html connect error: {exc}"
+    except httpx.TimeoutException:
+        return [], "ddg_html timeout"
     except Exception as exc:
-        logger.warning("DDG HTML search failed: %s", exc)
-        return []
+        return [], f"ddg_html error: {type(exc).__name__}: {exc}"
 
 
 # ── Backend 3: Bing Web Search API (optional) ──────────────────────────────
 
-async def _search_bing(query: str, max_results: int) -> list[dict]:
-    """Search using Bing Web Search API (requires BING_SEARCH_API_KEY env var)."""
+async def _search_bing(query: str, max_results: int) -> tuple[list[dict], str]:
+    """Search using Bing Web Search API. Returns (results, diagnostic)."""
     api_key = os.environ.get("BING_SEARCH_API_KEY", "").strip()
     if not api_key:
-        return []
+        return [], "bing: no BING_SEARCH_API_KEY set"
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -145,10 +202,16 @@ async def _search_bing(query: str, max_results: int) -> list[dict]:
                 "url": page.get("url", ""),
                 "snippet": page.get("snippet", ""),
             })
-        return results
+
+        if not results:
+            return [], "bing: API responded but 0 results"
+        return results, f"bing: {len(results)} results OK"
+    except httpx.HTTPStatusError as exc:
+        return [], f"bing HTTP {exc.response.status_code}"
+    except httpx.ConnectError as exc:
+        return [], f"bing connect error: {exc}"
     except Exception as exc:
-        logger.warning("Bing search failed: %s", exc)
-        return []
+        return [], f"bing error: {type(exc).__name__}: {exc}"
 
 
 # ── Main search function ───────────────────────────────────────────────────
@@ -166,44 +229,80 @@ async def web_search(
       3. Bing Web Search API (if BING_SEARCH_API_KEY env var is set)
 
     Returns up to `max_results` items; each item has a title, URL, and a short
-    snippet. If all backends fail, returns a clear error string instead of raising.
+    snippet. If all backends fail, returns a detailed diagnostic error with
+    per-backend reasons so the agent can diagnose the issue.
     """
     audit_id = audit_log("WebSearch.search", "started", {"query": query, "max_results": max_results})
     max_results = max(1, min(10, int(max_results or 5)))
-    backends_tried = []
+    diagnostics = []
+    results = []
 
-    # Try backends in order
+    # Try backends in order, collecting diagnostics
     for backend_name, backend_fn in [
         ("ddgs", _search_ddgs),
         ("ddg_html", _search_ddg_html),
         ("bing", _search_bing),
     ]:
         try:
-            results = await backend_fn(query, max_results)
-            if results:
-                backends_tried.append(backend_name)
+            res, diag = await backend_fn(query, max_results)
+            diagnostics.append(diag)
+            if res:
+                results = res
                 break
-            backends_tried.append(f"{backend_name}(empty)")
         except Exception as exc:
-            logger.warning("%s backend raised: %s", backend_name, exc)
-            backends_tried.append(f"{backend_name}(error)")
+            diagnostics.append(f"{backend_name}: {type(exc).__name__}: {exc}")
 
     if not results:
+        diag_str = "; ".join(diagnostics)
         audit_log(
             "WebSearch.search", "no_results",
-            {"query": query, "backends": backends_tried},
+            {"query": query, "diagnostics": diag_str},
             parent_id=audit_id,
         )
+        # Provide actionable diagnosis based on error patterns
+        if all("connect error" in d or "timeout" in d for d in diagnostics):
+            hint = "All backends failed to connect. Check network/DNS — can this environment reach the internet?"
+        elif all("not installed" in d or "no BING" in d for d in diagnostics):
+            hint = "No search backend is installed or configured. Install ddgs: pip install ddgs"
+        else:
+            hint = "All search backends returned empty or errored. Check connectivity and API keys."
         return (
-            f"No web results for: {query!r}. "
-            f"Tried: {', '.join(backends_tried)}. "
-            "Try a different query or check connectivity."
+            f"No web results for: {query!r}.\n"
+            f"Diagnostics: {diag_str}\n"
+            f"{hint}"
         )
 
-    # Format results as Markdown
+    # Format results as Markdown, filtering out broken URLs and deprioritizing hubs
+    # Separate into articles and hubs
+    articles = []
+    hubs = []
+    broken = []
+
+    for r in results[:max_results * 2]:  # Fetch extra to have enough after filtering
+        url = r.get("url", "")
+        if not _is_valid_article_url(url):
+            broken.append(r)
+            continue
+        if _is_hub_url(url):
+            r["_hub"] = True
+            hubs.append(r)
+        else:
+            articles.append(r)
+
+    # Prefer articles, fall back to hubs if not enough articles
+    display = articles[:max_results]
+    if len(display) < max_results:
+        remaining = max_results - len(display)
+        display.extend(hubs[:remaining])
+
+    if not display:
+        # If everything was filtered out, return unfiltered results
+        display = results[:max_results]
+
     lines = [f"# Web search results: {query}"]
-    for i, r in enumerate(results[:max_results], start=1):
-        lines.append(f"\n**{i}. {r['title']}**")
+    for i, r in enumerate(display, start=1):
+        hub_label = " [section page]" if r.get("_hub") else ""
+        lines.append(f"\n**{i}. {r['title']}{hub_label}**")
         lines.append(f"<{r['url']}>")
         if r["snippet"]:
             lines.append(r["snippet"][:500])
@@ -212,7 +311,7 @@ async def web_search(
     audit_log(
         "WebSearch.search",
         "completed",
-        {"query": query, "result_count": len(results[:max_results]), "backend": backends_tried[0]},
+        {"query": query, "result_count": len(results[:max_results]), "backend": diagnostics[0] if diagnostics else "unknown"},
         parent_id=audit_id,
     )
     return result

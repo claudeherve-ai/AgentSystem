@@ -483,6 +483,136 @@ async def graph_send_email(
         return "Sent"
 
 
+async def graph_search_messages(query: str, count: int = 20) -> list[dict] | str:
+    """Search inbox messages by keyword (subject, sender, body)."""
+    params: dict = {
+        "$top": min(count, 50),
+        "$orderby": "receivedDateTime desc",
+        "$select": "id,subject,from,bodyPreview,receivedDateTime,isRead",
+        "$search": f"\"{query}\"",
+    }
+    data = await _graph_get("/me/messages", params=params)
+    if data is None:
+        return "ERR_AUTH_REQUIRED"
+    messages = data.get("value", [])
+    results: list[dict] = []
+    for msg in messages:
+        sender = msg.get("from", {}).get("emailAddress", {})
+        results.append({
+            "id": msg.get("id", ""),
+            "subject": msg.get("subject", "(No subject)"),
+            "from_email": sender.get("address", "unknown"),
+            "from_name": sender.get("name", "unknown"),
+            "preview": msg.get("bodyPreview", ""),
+            "received_date": msg.get("receivedDateTime", ""),
+        })
+    return results
+
+
+async def graph_get_thread(message_id: str) -> list[dict] | str:
+    """Fetch all messages in the conversation thread for a given message."""
+    params: dict = {
+        "$top": 50,
+        "$orderby": "receivedDateTime asc",
+        "$select": "id,subject,from,bodyPreview,receivedDateTime,conversationId",
+    }
+    data = await _graph_get(f"/me/messages/{message_id}", params={})
+    if data is None:
+        return "ERR_AUTH_REQUIRED"
+
+    conversation_id = data.get("conversationId")
+    if not conversation_id:
+        sender = data.get("from", {}).get("emailAddress", {})
+        return [{
+            "id": data.get("id", ""),
+            "subject": data.get("subject", ""),
+            "from_email": sender.get("address", ""),
+            "from_name": sender.get("name", ""),
+            "preview": data.get("bodyPreview", ""),
+            "received_date": data.get("receivedDateTime", ""),
+        }]
+
+    # Fetch all messages with matching conversationId
+    params = {
+        "$top": 50,
+        "$orderby": "receivedDateTime asc",
+        "$select": "id,subject,from,bodyPreview,receivedDateTime",
+        "$filter": f"conversationId eq '{conversation_id}'",
+    }
+    thread_data = await _graph_get("/me/messages", params=params)
+    if thread_data is None:
+        return "ERR_AUTH_REQUIRED"
+
+    results: list[dict] = []
+    for msg in thread_data.get("value", []):
+        sender = msg.get("from", {}).get("emailAddress", {})
+        results.append({
+            "id": msg.get("id", ""),
+            "subject": msg.get("subject", ""),
+            "from_email": sender.get("address", ""),
+            "from_name": sender.get("name", ""),
+            "preview": msg.get("bodyPreview", ""),
+            "received_date": msg.get("receivedDateTime", ""),
+        })
+    return results
+
+
+async def graph_create_draft_reply(message_id: str, body: str) -> str:
+    """Create a draft reply to a message and save to Drafts folder."""
+    import httpx
+    token = _get_graph_token()
+    if not token:
+        return "ERR_AUTH_REQUIRED"
+    url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}/createReply"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "message": {
+            "body": {"contentType": "Text", "content": body},
+        }
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code == 401:
+            return "ERR_AUTH_REQUIRED"
+        resp.raise_for_status()
+        return resp.json().get("id", "")
+
+
+async def graph_send_mail(
+    to: str, subject: str, body: str, cc: str = "",
+) -> str:
+    """Send an email via Microsoft Graph. Wraps graph_send_email with CC support."""
+    import httpx
+    token = _get_graph_token()
+    if not token:
+        return "ERR_AUTH_REQUIRED"
+    url = "https://graph.microsoft.com/v1.0/me/sendMail"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    message: dict = {
+        "subject": subject,
+        "body": {"contentType": "Text", "content": body},
+        "toRecipients": [{"emailAddress": {"address": to}}],
+    }
+    if cc:
+        message["ccRecipients"] = [
+            {"emailAddress": {"address": addr.strip()}}
+            for addr in cc.split(",") if addr.strip()
+        ]
+    payload = {"message": message, "saveToSentItems": "true"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code == 401:
+            return "ERR_AUTH_REQUIRED"
+        resp.raise_for_status()
+        return "Sent"
+
+
 async def graph_create_event(
     subject: str, start_iso: str, end_iso: str, location: str = "",
 ) -> str:

@@ -1,10 +1,11 @@
 """
-AgentSystem — Agent Factory v3.0
+AgentSystem — Agent Factory v3.1
 19 powerhouse agents with inter-agent handoff. Each agent has:
-- Base capability tools (web search, code execution, KB, critique)
+- Base capability tools (web search, code execution, KB, critique, STRUCTURED OUTPUTS)
 - Domain-specific tools from merged specialist agents
 - Claude-skills context injection
 - Handoff to peer agents for cross-domain tasks
+- Optional mandatory critique gate for high-stakes agents
 """
 import sys
 from pathlib import Path
@@ -24,6 +25,7 @@ from agents.projectmanager_agent import PROJECTMANAGER_TOOLS
 from agents.projectshepherd_agent import PROJECTSHEPHERD_TOOLS
 from agents.realestate_agent import REALESTATE_TOOLS
 from agents.emailintel_agent import EMAILINTEL_TOOLS
+from tools.structured_outputs import STRUCTURED_OUTPUT_TOOLS
 
 # Merged agent tools
 from agents.engineering_agent import ENGINEERING_TOOLS
@@ -44,7 +46,7 @@ def build_orchestrator() -> Orchestrator:
     agent_configs = get_agent_configs()
     orch = Orchestrator()
 
-    # ── Communication ────────────────────────────────────────────────────
+    # ── Communication ───────────────────────────────────────────────────
     orch.register_agent(
         name="EmailAgent",
         system_message=agent_configs.get("email_agent", {}).get("system_message", ""),
@@ -70,11 +72,11 @@ def build_orchestrator() -> Orchestrator:
         name="EmailIntelAgent",
         system_message=agent_configs.get("emailintel_agent", {}).get("system_message", ""),
         description="Email thread analysis, action items, decision tracking",
-        tools=EMAILINTEL_TOOLS,
+        tools=[*EMAILINTEL_TOOLS, *STRUCTURED_OUTPUT_TOOLS],
         handoff_agents=["EmailAgent"],
     )
 
-    # ── ENGINEERING HUB (6→1) ───────────────────────────────────────────
+    # ── ENGINEERING HUB (6→1) ─────────────────────────────────────────────
     orch.register_agent(
         name="EngineeringAgent",
         system_message=(
@@ -99,9 +101,10 @@ def build_orchestrator() -> Orchestrator:
         description="Full-stack engineering: architecture, code, review, performance, UX, optimization (25+ tools)",
         tools=ENGINEERING_TOOLS,
         handoff_agents=["CloudDataAgent", "ExecutionAgent", "SecurityEngineerAgent"],
+        require_critique=True,
     )
 
-    # ── CLOUD & DATA HUB (4→1) ──────────────────────────────────────────
+    # ── CLOUD & DATA HUB (4→1) ─────────────────────────────────────────────
     orch.register_agent(
         name="CloudDataAgent",
         system_message=(
@@ -124,9 +127,10 @@ def build_orchestrator() -> Orchestrator:
         description="Cloud architecture, data pipelines, Databricks, DevOps, CI/CD, IaC (22+ tools)",
         tools=CLOUDDATA_TOOLS,
         handoff_agents=["EngineeringAgent", "ExecutionAgent", "SecurityEngineerAgent"],
+        require_critique=True,
     )
 
-    # ── REVENUE HUB (4→1) ───────────────────────────────────────────────
+    # ── REVENUE HUB (4→1) ─────────────────────────────────────────────────
     orch.register_agent(
         name="RevenueAgent",
         system_message=(
@@ -142,14 +146,16 @@ def build_orchestrator() -> Orchestrator:
             "2. Run financial calculations with run_python, not mental math.\n"
             "3. Handoff to FinanceAgent for pricing/budget questions, LegalAgent for contract review.\n"
             "4. Every deal strategy must cite MEDDPICC criteria explicitly.\n"
-            "5. Growth experiments must include success metrics and statistical significance thresholds."
+            "5. Growth experiments must include success metrics and statistical significance thresholds.\n"
+            "6. For deal qualifications, use `deal_qualification_report` as your final output format."
         ),
         description="Deals, proposals, sales strategy, growth hacking, funnel optimization (20+ tools)",
-        tools=[*REVENUE_TOOLS, *FINANCE_TOOLS],
+        tools=[*REVENUE_TOOLS, *FINANCE_TOOLS, *STRUCTURED_OUTPUT_TOOLS],
         handoff_agents=["FinanceAgent", "LegalAgent", "BusinessAgent"],
+        require_critique=True,
     )
 
-    # ── LEGAL HUB (2→1) ─────────────────────────────────────────────────
+    # ── LEGAL HUB (2→1) ────────────────────────────────────────────────
     orch.register_agent(
         name="LegalAgent",
         system_message=(
@@ -165,11 +171,13 @@ def build_orchestrator() -> Orchestrator:
             "2. Recommend consulting a qualified attorney for all legal matters.\n"
             "3. Search current regulations via web_search before making compliance claims.\n"
             "4. Handoff to RevenueAgent for deal-related legal review.\n"
-            "5. Laws vary by jurisdiction — always note jurisdictional context."
+            "5. Laws vary by jurisdiction — always note jurisdictional context.\n"
+            "6. For document reviews, use `legal_risk_assessment` as your final output format."
         ),
         description="Legal docs, contracts, compliance (GDPR/SOC2/HIPAA), document review (8 tools)",
-        tools=LEGAL_TOOLS_V2,
+        tools=[*LEGAL_TOOLS_V2, *STRUCTURED_OUTPUT_TOOLS],
         handoff_agents=["RevenueAgent", "SecurityEngineerAgent"],
+        require_critique=True,
     )
 
     # ── FINANCE HUB (3→1) ───────────────────────────────────────────────
@@ -187,14 +195,16 @@ def build_orchestrator() -> Orchestrator:
             "2. Search current market data via web_search for investment decisions.\n"
             "3. Handoff to RevenueAgent for deal economics, LegalAgent for tax law interpretation.\n"
             "4. All financial advice must include risk disclaimers.\n"
-            "5. Use claude-skills financial tools for DCF, ratios, SaaS metrics when applicable."
+            "5. Use claude-skills financial tools for DCF, ratios, SaaS metrics when applicable.\n"
+            "6. For financial modeling, use `financial_analysis_report` as your final output format."
         ),
         description="Financial planning, tax strategy, investment research, budgeting (11 tools)",
-        tools=[*FINANCE_TOOLS_V2, *FINANCE_TOOLS],
+        tools=[*FINANCE_TOOLS_V2, *FINANCE_TOOLS, *STRUCTURED_OUTPUT_TOOLS],
         handoff_agents=["RevenueAgent", "LegalAgent"],
+        require_critique=True,
     )
 
-    # ── EXECUTION HUB (4→1) ─────────────────────────────────────────────
+    # ── EXECUTION HUB (4→1) ──────────────────────────────────────────
     orch.register_agent(
         name="ExecutionAgent",
         system_message=(
@@ -220,9 +230,10 @@ def build_orchestrator() -> Orchestrator:
         description="Research, code execution, debugging, critique — the execution loop (30+ tools)",
         tools=EXECUTION_TOOLS,
         handoff_agents=["EngineeringAgent", "CloudDataAgent", "FinanceAgent", "RevenueAgent"],
+        require_critique=True,
     )
 
-    # ── STANDALONE SPECIALISTS ───────────────────────────────────────────
+    # ── STANDALONE SPECIALISTS ─────────────────────────────────────────────
     orch.register_agent(
         name="AIEngineerAgent",
         system_message=agent_configs.get("aiengineer_agent", {}).get("system_message", ""),
@@ -280,7 +291,7 @@ def build_orchestrator() -> Orchestrator:
         handoff_agents=["FinanceAgent", "LegalAgent"],
     )
 
-    # ── SANDBOXED CODE EXECUTION ─────────────────────────────────────────
+    # ── SANDBOXED CODE EXECUTION ──────────────────────────────────────
     orch.register_agent(
         name="CodeExecutorAgent",
         system_message=CODEEXECUTOR_AGENT_INSTRUCTIONS,

@@ -35,14 +35,38 @@ from .audit import audit_log
 
 logger = logging.getLogger(__name__)
 
-# ── Browse CLI path ──────────────────────────────────────────────────────
-_BROWSE_BIN = shutil.which("browse") or "/home/tedch/.npm-global/bin/browse"
+# ── Browse CLI path — try multiple locations since Path.home() differs ──
+# between Windows-process-launched (C:\Users\tedch\) and WSL-native (/home/tedch/)
+
+def _resolve_browse_bin() -> Optional[str]:
+    """Find the browse CLI binary, trying every known location.
+
+    Path.home() / ~ can resolve to C:\\Users\\tedch when the Python process
+    is started from Windows, even inside WSL. We try both WSL and Windows
+    paths explicitly.
+    """
+    candidates = [
+        shutil.which("browse"),                                    # PATH lookup
+        "/home/tedch/.npm-global/bin/browse",                      # WSL Linux home
+        "/usr/local/bin/browse",                                   # system install
+    ]
+    # Also try the WSL home resolved via /mnt/c/Users mapping
+    wsl_home = os.environ.get("HOME", "")
+    if wsl_home:
+        candidates.append(os.path.join(wsl_home, ".npm-global/bin/browse"))
+
+    for c in candidates:
+        if c and os.path.isfile(c):
+            return c
+    return None
+
+_BROWSE_BIN = _resolve_browse_bin() or "/home/tedch/.npm-global/bin/browse"
 
 
 def _find_chromium() -> Optional[Path]:
     """Find a usable Chromium binary. Checks in order:
     1. CHROME_PATH env var (Docker container)
-    2. Playwright cache (WSL local dev)
+    2. Playwright cache — both WSL Linux (/home/) and Windows-home paths
     3. Standard system paths
     """
     # 1. Explicit env override
@@ -52,24 +76,35 @@ def _find_chromium() -> Optional[Path]:
         if p.exists():
             return p
 
-    # 2. Playwright cache (local dev)
-    playwright_candidates = sorted(
-        (Path.home() / ".cache/ms-playwright").glob("chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell"),
-        reverse=True,
-    )
-    if playwright_candidates:
-        return playwright_candidates[0]
+    # 2. Playwright cache — try multiple home directories because
+    #    Path.home() returns C:\Users\tedch when called from a Windows-started
+    #    Python process, but the actual cache lives at /home/tedch/.cache/
+    home_candidates = [
+        Path("/home/tedch"),                     # WSL Linux home (hardcoded)
+        Path(os.environ.get("HOME", "/home/tedch")),  # From $HOME env
+        Path.home(),                             # Python's home (may be Windows path)
+    ]
 
-    # Also check non-headless-shell Playwright chromium
-    playwright_chrome = sorted(
-        (Path.home() / ".cache/ms-playwright").glob("chromium-*/chrome-linux*/chrome"),
-        reverse=True,
-    )
-    if playwright_chrome:
-        return playwright_chrome[0]
+    playwright_patterns = [
+        ".cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell",
+        ".cache/ms-playwright/chromium-*/chrome-linux*/chrome",
+    ]
+
+    for home in home_candidates:
+        try:
+            for pattern in playwright_patterns:
+                candidates = sorted(
+                    home.glob(pattern),
+                    reverse=True,
+                )
+                if candidates:
+                    logger.info("Found Chromium via home=%s: %s", home, candidates[0])
+                    return candidates[0]
+        except Exception:
+            continue
 
     # 3. Standard system paths
-    for name in ("chromium", "chromium-browser", "chromium-browser", "google-chrome", "google-chrome-stable"):
+    for name in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
         p = shutil.which(name)
         if p:
             return Path(p)
@@ -77,7 +112,6 @@ def _find_chromium() -> Optional[Path]:
     return None
 
 
-_CHROMIUM_SHELL = _find_chromium()
 _CDP_PORT = 9222
 _CDP_URL = f"http://127.0.0.1:{_CDP_PORT}"
 _IDLE_TIMEOUT = 600  # 10 minutes
@@ -89,6 +123,15 @@ _cleanup_task: Optional[asyncio.Task] = None
 _lock = asyncio.Lock()  # prevent concurrent browser operations
 
 
+def _get_chromium() -> Optional[Path]:
+    """Dynamic Chromium lookup — re-checks on every call.
+
+    Not using a module-level cache because Chromium may have been installed
+    AFTER the AgentSystem process started, making the cached value stale.
+    """
+    return _find_chromium()
+
+
 def _cmd(*args: str, timeout: int = 15) -> subprocess.CompletedProcess:
     """Run a browse CLI subcommand and return the completed process."""
     return subprocess.run(
@@ -96,7 +139,11 @@ def _cmd(*args: str, timeout: int = 15) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         timeout=timeout,
-        env={**os.environ, "PATH": os.environ.get("PATH", "")},
+        env={
+            **os.environ,
+            "PATH": os.environ.get("PATH", ""),
+            "NO_UPDATE_NOTIFIER": "1",  # suppress "Update available: X.Y.Z" messages
+        },
     )
 
 
@@ -111,6 +158,7 @@ async def _ensure_browser() -> bool:
         return True
 
     # Try to connect to an existing CDP instance
+    session_was_external = False
     try:
         proc = await asyncio.create_subprocess_exec(
             "curl", "-s", "-f", f"{_CDP_URL}/json/version",
@@ -121,30 +169,53 @@ async def _ensure_browser() -> bool:
         if proc.returncode == 0:
             _browser_proc = None  # managed externally, but usable
             _last_used = time.time()
+            session_was_external = True
             return True
     except Exception:
         pass
 
+    # Clean up stale browse CLI sessions from a previous (now-dead) CDP instance.
+    # When Chromium restarts on the same port, browse CLI sessions that were
+    # attached to the old CDP instance become invalid and block new sessions.
+    if not session_was_external:
+        for session_name in ("agent-fetch", "agent-snap", "agent-interact"):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    _BROWSE_BIN, "stop", "--session", session_name,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await asyncio.wait_for(proc.communicate(), timeout=5)
+            except Exception:
+                pass
+
     # Start Chromium
-    if _CHROMIUM_SHELL is None or not _CHROMIUM_SHELL.exists():
+    chromium = _get_chromium()
+    if chromium is None or not chromium.exists():
         logger.error(
             "Chromium not found. Install: apt-get install chromium (Docker) "
             "or npx playwright install chromium (local). "
             "Set CHROME_PATH env var to override."
         )
         return False
-        return False
 
     logger.info("Launching Chromium CDP on port %d", _CDP_PORT)
     try:
+        # Data directory for persistent cookies/sessions (avoids fresh-bot detection)
+        user_data_dir = os.path.join(os.environ.get("HOME", "/tmp"), ".browse_chrome_profile")
+        os.makedirs(user_data_dir, exist_ok=True)
+
         _browser_proc = subprocess.Popen(
             [
-                str(_CHROMIUM_SHELL),
-                "--headless",
+                str(chromium),
+                "--headless=new",                         # New headless mode (harder to detect)
                 f"--remote-debugging-port={_CDP_PORT}",
                 "--no-sandbox",
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",  # Hide navigator.webdriver
+                f"--window-size=1920,1080",
+                f"--user-data-dir={user_data_dir}",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -173,17 +244,26 @@ async def _ensure_browser() -> bool:
 
 
 async def _run_browse(*args: str, timeout: int = 15) -> tuple[bool, str]:
-    """Run a browse CLI command. Returns (success, output_text)."""
+    """Run a browse CLI command. Returns (success, output_text).
+
+    The browse CLI path is resolved at call time — not cached at import.
+    """
     global _last_used
     _last_used = time.time()
 
+    # Resolve browse binary dynamically
+    browse_bin = _resolve_browse_bin()
+    if not browse_bin:
+        return False, "Browse CLI not found in any expected location. Install: npm install -g @browseai/browse"
+
     # --cdp must come AFTER the subcommand (e.g., "browse open --cdp 9222" not "browse --cdp 9222 open")
-    cmd = [_BROWSE_BIN, args[0], "--cdp", str(_CDP_PORT), *args[1:]]
+    cmd = [browse_bin, args[0], "--cdp", str(_CDP_PORT), *args[1:]]
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "NO_UPDATE_NOTIFIER": "1"},
         )
         stdout, stderr = await asyncio.wait_for(
             proc.communicate(), timeout=timeout
@@ -573,4 +653,46 @@ atexit.register(_idle_cleanup_handler)
 
 # ── Tool list for orchestrator import ────────────────────────────────────
 
-BROWSE_TOOLS = [browse_fetch, browse_snapshot, browse_interact]
+async def browse_health() -> str:
+    """Check whether the browser (Chromium CDP) is available.
+
+    Call this BEFORE browse_fetch if you're unsure whether the browser
+    can be launched. Returns availability status and setup instructions.
+    """
+    # Find browse CLI
+    browse_bin = _resolve_browse_bin()
+    if not browse_bin:
+        return (
+            "Browser: UNAVAILABLE\n"
+            "Reason: browse CLI not found\n"
+            f"Searched: $PATH, /home/tedch/.npm-global/bin/browse, $HOME/.npm-global/bin/browse, /usr/local/bin/browse\n"
+            "Fix: npm install -g @browseai/browse\n"
+            "Fallback: Use web_fetch for static pages instead."
+        )
+
+    # Check if Chromium can be launched (dynamic re-check)
+    chromium = _get_chromium()
+    if chromium and chromium.exists():
+        try:
+            proc = subprocess.run(
+                [str(chromium), "--version"],
+                capture_output=True, text=True, timeout=5,
+            )
+            version = proc.stdout.strip() or "(unknown version)"
+            return f"Browser: AVAILABLE\nBrowse CLI: {browse_bin}\nChromium: {version}\nPath: {chromium}"
+        except Exception as e:
+            return (
+                f"Browser: DEGRADED\nBrowse CLI: {browse_bin}\n"
+                f"Chromium found at {chromium} but could not check version: {e}\n"
+                f"Try: browse_fetch may still work. If not, fall back to web_fetch."
+            )
+    else:
+        return (
+            f"Browser: UNAVAILABLE\nBrowse CLI: {browse_bin}\n"
+            f"Reason: Chromium not found\n"
+            f"Fix: npx playwright install chromium\n"
+            f"Fallback: Use web_fetch for static pages. Most sites work fine with it."
+        )
+
+
+BROWSE_TOOLS = [browse_health, browse_fetch, browse_snapshot, browse_interact]

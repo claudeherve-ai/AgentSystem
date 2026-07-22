@@ -125,7 +125,7 @@ def test_audit():
 
 def test_email_tools():
     from agents.email_agent import EMAIL_TOOLS
-    assert len(EMAIL_TOOLS) == 6
+    assert len(EMAIL_TOOLS) >= 10
     names = [t.__name__ for t in EMAIL_TOOLS]
     assert "read_inbox" in names
     assert "check_inbox" in names
@@ -135,7 +135,7 @@ def test_email_tools():
 
 def test_calendar_tools():
     from agents.calendar_agent import CALENDAR_TOOLS
-    assert len(CALENDAR_TOOLS) == 5
+    assert len(CALENDAR_TOOLS) >= 9
     names = [t.__name__ for t in CALENDAR_TOOLS]
     assert "get_upcoming_events" in names
     assert "create_event" in names
