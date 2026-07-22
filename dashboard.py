@@ -1,13 +1,14 @@
 """
-AgentSystem — Aurora Dashboard
-==============================
-A premium Streamlit control plane for the multi-agent orchestrator.
+AgentSystem — CYBER-MATRIX Console
+==================================
+A Streamlit control plane for the multi-agent orchestrator.
 
-Design language: "Aurora" — deep indigo glass surfaces, a violet→cyan accent
-gradient, soft ambient glows, and clean Inter / JetBrains Mono typography.
-All orchestrator API calls are preserved from the original dashboard:
-build_orchestrator(), orch.agent_names, orch.status(), orch.handle_user_input(),
-orch.reset_session(), orch._registrations.
+Design language: "Cyber-Matrix" — phosphor-green terminal glow on deep black,
+scanline overlays, glitch accents, JetBrains Mono everywhere, neon green
+primary (#00ff41) with cyan (#00e5ff) secondary and amber (#ffb000) alerts.
+All orchestrator API calls preserved: build_orchestrator(), orch.agent_names,
+orch.status(), orch.handle_user_input(), orch.reset_session(),
+orch._registrations.
 """
 import sys
 import os
@@ -21,8 +22,8 @@ from agents.factory import build_orchestrator
 
 # ── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="AgentSystem · Aurora",
-    page_icon="✦",
+    page_title="AgentSystem · CYBER-MATRIX",
+    page_icon="▓",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
@@ -32,222 +33,243 @@ st.set_page_config(
     },
 )
 
-# ── Aurora theme ────────────────────────────────────────────────────────────
+# ── Cyber-Matrix theme ──────────────────────────────────────────────────────
 st.markdown(
     """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Share+Tech+Mono&display=swap');
 
     :root {
-        --bg-0: #070912;
-        --bg-1: #0d1020;
-        --glass: rgba(22, 27, 48, 0.55);
-        --glass-brd: rgba(255, 255, 255, 0.08);
-        --txt: #e7ecff;
-        --txt-dim: #9aa3c7;
-        --accent-a: #7c5cff;
-        --accent-b: #28e0c8;
-        --accent-c: #ff7ac6;
-        --grad: linear-gradient(120deg, #7c5cff 0%, #4d8bff 45%, #28e0c8 100%);
-        --grad-soft: linear-gradient(120deg, rgba(124,92,255,0.18), rgba(40,224,200,0.14));
+        --bg-0: #020604;
+        --bg-1: #04120a;
+        --glass: rgba(4, 24, 12, 0.66);
+        --glass-brd: rgba(0, 255, 65, 0.16);
+        --txt: #c9ffd9;
+        --txt-dim: #4d9a68;
+        --neon: #00ff41;
+        --neon-soft: rgba(0, 255, 65, 0.14);
+        --cyan: #00e5ff;
+        --amber: #ffb000;
+        --grad: linear-gradient(120deg, #00ff41 0%, #00e5ff 100%);
+        --grad-soft: linear-gradient(120deg, rgba(0,255,65,0.14), rgba(0,229,255,0.10));
     }
 
-    /* Ambient gradient background */
+    /* Ambient background + scanlines */
     .stApp {
         background:
-            radial-gradient(1100px 600px at 12% -8%, rgba(124,92,255,0.22), transparent 60%),
-            radial-gradient(900px 520px at 110% 8%, rgba(40,224,200,0.16), transparent 55%),
-            radial-gradient(700px 700px at 50% 120%, rgba(255,122,198,0.10), transparent 60%),
+            radial-gradient(1000px 500px at 15% -10%, rgba(0,255,65,0.10), transparent 60%),
+            radial-gradient(800px 500px at 110% 10%, rgba(0,229,255,0.07), transparent 55%),
             var(--bg-0);
         color: var(--txt);
-        font-family: 'Inter', -apple-system, system-ui, sans-serif;
+        font-family: 'JetBrains Mono', 'Share Tech Mono', monospace;
+    }
+    .stApp::before {
+        content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+        background: repeating-linear-gradient(
+            0deg, rgba(0,0,0,0.22) 0px, rgba(0,0,0,0.22) 1px,
+            transparent 1px, transparent 3px);
+        opacity: 0.35;
     }
 
     .block-container { padding-top: 2.2rem; max-width: 1320px; }
 
-    /* Typography */
-    h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; color: var(--txt) !important; letter-spacing: -0.02em; }
+    /* Typography — terminal */
+    h1, h2, h3, h4 { font-family: 'JetBrains Mono', monospace !important; color: var(--neon) !important;
+        letter-spacing: 0.02em; text-shadow: 0 0 18px rgba(0,255,65,0.45); }
     h1 { font-weight: 800 !important; }
-    p, span, label, li { color: var(--txt); }
+    p, span, label, li { color: var(--txt); font-family: 'JetBrains Mono', monospace; }
 
     /* Sidebar */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, rgba(13,16,32,0.95), rgba(7,9,18,0.95));
+        background: linear-gradient(180deg, rgba(2,10,5,0.97), rgba(2,6,4,0.97));
         border-right: 1px solid var(--glass-brd);
-        backdrop-filter: blur(18px);
     }
     [data-testid="stSidebar"] * { color: var(--txt); }
 
-    /* Native metric tiles → glass */
+    /* Metric tiles → terminal glass */
     [data-testid="stMetric"] {
         background: var(--glass);
         border: 1px solid var(--glass-brd);
-        border-radius: 18px;
+        border-left: 3px solid var(--neon);
+        border-radius: 4px;
         padding: 18px 20px;
-        backdrop-filter: blur(14px);
-        box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+        box-shadow: 0 0 24px rgba(0,255,65,0.07), inset 0 0 24px rgba(0,255,65,0.03);
     }
     [data-testid="stMetriclabel"], [data-testid="stMetricLabel"] p {
-        color: var(--txt-dim) !important; font-size: 0.78rem !important;
-        text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600 !important;
+        color: var(--txt-dim) !important; font-size: 0.72rem !important;
+        text-transform: uppercase; letter-spacing: 0.14em; font-weight: 600 !important;
+        font-family: 'JetBrains Mono', monospace !important;
     }
     [data-testid="stMetricValue"] {
-        color: var(--txt) !important; font-family: 'Inter', sans-serif !important;
-        font-weight: 800 !important;
+        color: var(--neon) !important; font-family: 'JetBrains Mono', monospace !important;
+        font-weight: 800 !important; text-shadow: 0 0 12px rgba(0,255,65,0.5);
     }
-    [data-testid="stMetricDelta"] { color: var(--accent-b) !important; }
+    [data-testid="stMetricDelta"] { color: var(--cyan) !important; }
 
     /* Buttons */
     .stButton > button {
-        background: var(--grad-soft);
+        background: rgba(0,255,65,0.06);
         border: 1px solid var(--glass-brd);
-        color: var(--txt);
-        border-radius: 14px;
+        color: var(--neon);
+        border-radius: 3px;
         font-weight: 600;
-        font-family: 'Inter', sans-serif;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.82rem;
         padding: 10px 14px;
-        transition: all 0.18s ease;
+        transition: all 0.15s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
     }
     .stButton > button:hover {
-        border-color: rgba(124,92,255,0.7);
-        box-shadow: 0 0 0 1px rgba(124,92,255,0.4), 0 10px 28px rgba(124,92,255,0.25);
-        transform: translateY(-1px);
-        color: #fff;
+        border-color: var(--neon);
+        background: var(--neon-soft);
+        box-shadow: 0 0 16px rgba(0,255,65,0.35);
+        color: #eafff0;
     }
 
     /* Chat surfaces */
     [data-testid="stChatMessage"] {
         background: var(--glass);
         border: 1px solid var(--glass-brd);
-        border-radius: 16px;
-        backdrop-filter: blur(12px);
+        border-radius: 4px;
     }
     [data-testid="stChatInput"] textarea {
-        background: rgba(13,16,32,0.85) !important;
+        background: rgba(2,10,5,0.92) !important;
         border: 1px solid var(--glass-brd) !important;
-        color: var(--txt) !important;
-        border-radius: 14px !important;
-        font-family: 'Inter', sans-serif !important;
+        color: var(--neon) !important;
+        border-radius: 4px !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        caret-color: var(--neon);
     }
     [data-testid="stChatInput"] textarea:focus {
-        border-color: rgba(124,92,255,0.7) !important;
-        box-shadow: 0 0 0 2px rgba(124,92,255,0.25) !important;
+        border-color: var(--neon) !important;
+        box-shadow: 0 0 0 1px rgba(0,255,65,0.35), 0 0 18px rgba(0,255,65,0.2) !important;
     }
-    /* Send button — make it visible and clickable */
     [data-testid="stChatInput"] button {
-        background: linear-gradient(135deg, var(--accent-a), #9b6dff) !important;
+        background: linear-gradient(135deg, #00c832, var(--neon)) !important;
         border: none !important;
-        border-radius: 10px !important;
-        color: white !important;
+        border-radius: 3px !important;
+        color: #021206 !important;
         cursor: pointer !important;
         opacity: 1 !important;
         pointer-events: auto !important;
         transition: all 0.15s ease !important;
     }
     [data-testid="stChatInput"] button:hover {
-        background: linear-gradient(135deg, #9b6dff, var(--accent-b)) !important;
-        box-shadow: 0 0 12px rgba(124,92,255,0.5) !important;
+        box-shadow: 0 0 16px rgba(0,255,65,0.6) !important;
     }
-    [data-testid="stChatInput"] button:disabled {
-        opacity: 0.4 !important;
-        cursor: not-allowed !important;
-    }
-    /* Input container background */
+    [data-testid="stChatInput"] button:disabled { opacity: 0.4 !important; cursor: not-allowed !important; }
     [data-testid="stChatInput"] {
-        background: rgba(13,16,32,0.6) !important;
-        border-radius: 16px !important;
+        background: rgba(2,10,5,0.7) !important;
+        border-radius: 4px !important;
         padding: 4px !important;
     }
 
-    /* Radio nav → pill list */
+    /* Radio nav → terminal list */
     [data-testid="stSidebar"] [role="radiogroup"] label {
-        background: rgba(255,255,255,0.03);
+        background: rgba(0,255,65,0.03);
         border: 1px solid transparent;
-        border-radius: 12px;
+        border-radius: 3px;
         padding: 9px 13px !important;
         margin-bottom: 6px;
         transition: all 0.15s ease;
+        font-family: 'JetBrains Mono', monospace !important;
     }
     [data-testid="stSidebar"] [role="radiogroup"] label:hover {
-        background: var(--grad-soft);
+        background: var(--neon-soft);
         border-color: var(--glass-brd);
     }
 
     hr { border-color: var(--glass-brd) !important; }
-    code { color: var(--accent-b); background: rgba(40,224,200,0.08); border-radius: 6px; }
+    code { color: var(--cyan); background: rgba(0,229,255,0.08); border-radius: 3px; }
 
-    /* JSON / dataframe glass */
     [data-testid="stJson"] {
         background: var(--glass) !important;
         border: 1px solid var(--glass-brd);
-        border-radius: 16px; padding: 8px;
+        border-radius: 4px; padding: 8px;
     }
 
     /* ── Custom components ─────────────────────────────────────────────── */
     .hero {
         background: var(--glass);
         border: 1px solid var(--glass-brd);
-        border-radius: 24px;
+        border-radius: 4px;
         padding: 26px 30px;
         margin-bottom: 18px;
-        backdrop-filter: blur(16px);
-        box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+        box-shadow: 0 0 40px rgba(0,255,65,0.08), inset 0 0 40px rgba(0,255,65,0.03);
         position: relative; overflow: hidden;
     }
     .hero::before {
         content: ""; position: absolute; inset: 0;
-        background: var(--grad); opacity: 0.10;
+        background: repeating-linear-gradient(90deg,
+            transparent 0px, transparent 38px,
+            rgba(0,255,65,0.03) 38px, rgba(0,255,65,0.03) 39px);
     }
     .hero-eyebrow {
-        font-family: 'JetBrains Mono', monospace; font-size: 0.74rem;
-        letter-spacing: 0.22em; text-transform: uppercase;
-        color: var(--accent-b); position: relative;
+        font-family: 'JetBrains Mono', monospace; font-size: 0.72rem;
+        letter-spacing: 0.28em; text-transform: uppercase;
+        color: var(--cyan); position: relative;
     }
+    .hero-eyebrow::before { content: "> "; color: var(--neon); }
     .hero-title {
-        font-size: 2.0rem; font-weight: 800; margin: 6px 0 4px; position: relative;
-        background: var(--grad); -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent; background-clip: text;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 1.9rem; font-weight: 800; margin: 6px 0 4px; position: relative;
+        color: var(--neon);
+        text-shadow: 0 0 22px rgba(0,255,65,0.55);
+        animation: flicker 4s infinite;
     }
-    .hero-sub { color: var(--txt-dim); font-size: 0.96rem; position: relative; }
+    @keyframes flicker {
+        0%, 92%, 96%, 100% { opacity: 1; }
+        94% { opacity: 0.72; }
+    }
+    .hero-sub { color: var(--txt-dim); font-size: 0.92rem; position: relative; }
+    .hero-sub::after {
+        content: "▊"; color: var(--neon); margin-left: 6px;
+        animation: blink 1.1s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
 
     .pill {
         display: inline-flex; align-items: center; gap: 7px;
-        background: rgba(40,224,200,0.10); border: 1px solid rgba(40,224,200,0.30);
-        color: var(--accent-b); border-radius: 999px;
-        padding: 5px 13px; font-size: 0.78rem; font-weight: 600;
+        background: rgba(0,255,65,0.08); border: 1px solid rgba(0,255,65,0.35);
+        color: var(--neon); border-radius: 2px;
+        padding: 5px 13px; font-size: 0.74rem; font-weight: 600;
         font-family: 'JetBrains Mono', monospace;
+        letter-spacing: 0.1em; text-transform: uppercase;
     }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-b);
-           box-shadow: 0 0 10px var(--accent-b); animation: pulse 1.8s infinite; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .dot { width: 8px; height: 8px; background: var(--neon);
+           box-shadow: 0 0 12px var(--neon); animation: pulse 1.6s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
     .agent-card {
         background: var(--glass); border: 1px solid var(--glass-brd);
-        border-radius: 16px; padding: 14px 16px; margin-bottom: 10px;
-        backdrop-filter: blur(10px); transition: all 0.18s ease;
+        border-left: 3px solid rgba(0,255,65,0.35);
+        border-radius: 3px; padding: 14px 16px; margin-bottom: 10px;
+        transition: all 0.16s ease;
     }
     .agent-card:hover {
-        border-color: rgba(124,92,255,0.55);
-        box-shadow: 0 10px 26px rgba(124,92,255,0.18);
-        transform: translateY(-2px);
+        border-color: var(--neon);
+        box-shadow: 0 0 20px rgba(0,255,65,0.22);
     }
     .agent-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-    .agent-name { font-weight: 700; font-size: 0.98rem; }
+    .agent-name { font-weight: 700; font-size: 0.94rem; color: var(--txt); font-family: 'JetBrains Mono', monospace; }
     .agent-idx {
         font-family: 'JetBrains Mono', monospace; font-size: 0.72rem;
-        color: var(--accent-a); margin-right: 8px;
+        color: var(--cyan); margin-right: 8px;
     }
-    .agent-desc { color: var(--txt-dim); font-size: 0.84rem; margin-top: 5px; line-height: 1.4; }
+    .agent-desc { color: var(--txt-dim); font-size: 0.8rem; margin-top: 5px; line-height: 1.45; }
     .tool-badge {
-        font-family: 'JetBrains Mono', monospace; font-size: 0.72rem;
-        background: var(--grad-soft); border: 1px solid var(--glass-brd);
-        color: var(--txt); border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+        font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+        background: var(--neon-soft); border: 1px solid var(--glass-brd);
+        color: var(--neon); border-radius: 2px; padding: 3px 10px; white-space: nowrap;
+        text-transform: uppercase; letter-spacing: 0.08em;
     }
     .section-label {
-        font-family: 'JetBrains Mono', monospace; font-size: 0.76rem;
-        letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-dim);
+        font-family: 'JetBrains Mono', monospace; font-size: 0.74rem;
+        letter-spacing: 0.22em; text-transform: uppercase; color: var(--txt-dim);
         margin: 6px 0 10px;
     }
+    .section-label::before { content: "// "; color: var(--neon); }
 </style>
 """,
     unsafe_allow_html=True,
@@ -256,7 +278,7 @@ st.markdown(
 
 # ── Orchestrator init ───────────────────────────────────────────────────────
 if "orchestrator" not in st.session_state:
-    with st.spinner("Spinning up the agent mesh…"):
+    with st.spinner("Booting the agent mesh…"):
         st.session_state.orchestrator = build_orchestrator()
 
 orch = st.session_state.orchestrator
@@ -281,14 +303,14 @@ def render_command_center():
     status = orch.status()
     _hero(
         "Command Center",
-        "Talk to the hive",
+        "TALK TO THE HIVE_",
         "Describe any goal in plain language — the orchestrator routes it to the "
         "right specialist agents and composes the answer.",
     )
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Agents Online", agent_count, delta="ready")
-    c2.metric("Status", "Operational")
+    c2.metric("Status", "OPERATIONAL")
     c3.metric("Model Provider", status.get("model_provider", "azure_openai"))
     sid = (status.get("active_session_id") or "—")
     c4.metric("Session", sid[:8])
@@ -342,7 +364,7 @@ def render_overview():
     status = orch.status()
     _hero(
         "System Overview",
-        "The full roster",
+        "THE FULL ROSTER_",
         f"{agent_count} specialist agents are registered and standing by, each with "
         "its own toolset wired into the shared power-tools layer.",
     )
@@ -365,7 +387,7 @@ def render_overview():
                 f"""
 <div class="agent-card">
   <div class="agent-head">
-    <div><span class="agent-idx">{i+1:02d}</span><span class="agent-name">{html.escape(name)}</span></div>
+    <div><span class="agent-idx">[{i+1:02d}]</span><span class="agent-name">{html.escape(name)}</span></div>
     <span class="tool-badge">{tool_count} tools</span>
   </div>
   <div class="agent-desc">{html.escape(desc)}</div>
@@ -379,7 +401,7 @@ def render_overview():
 def render_metrics():
     _hero(
         "Hive Metrics",
-        "Telemetry at a glance",
+        "TELEMETRY AT A GLANCE_",
         "Live request metrics light up when Azure Application Insights or Prometheus "
         "is connected. Tool distribution below is computed from the live registry.",
     )
@@ -394,7 +416,7 @@ def render_metrics():
     for name in orch.agent_names:
         reg = orch._registrations.get(name)
         tool_data[name] = len(reg.tools) if reg and hasattr(reg, "tools") else 0
-    st.bar_chart(tool_data, use_container_width=True, color="#7c5cff")
+    st.bar_chart(tool_data, use_container_width=True, color="#00ff41")
 
 
 # ── HEALTH ──────────────────────────────────────────────────────────────────
@@ -402,7 +424,7 @@ def render_health():
     status = orch.status()
     _hero(
         "System Health",
-        "Diagnostics",
+        "DIAGNOSTICS_",
         "Raw orchestrator status plus a quick read on the core subsystems.",
     )
 
@@ -420,11 +442,10 @@ def render_health():
 st.sidebar.markdown(
     """
 <div style="padding: 6px 2px 14px;">
-  <div style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; letter-spacing:0.22em;
-              color:#28e0c8; text-transform:uppercase;">Aurora Console</div>
-  <div style="font-size:1.5rem; font-weight:800; margin-top:4px;
-              background:linear-gradient(120deg,#7c5cff,#28e0c8); -webkit-background-clip:text;
-              -webkit-text-fill-color:transparent; background-clip:text;">✦ AgentSystem</div>
+  <div style="font-family:'JetBrains Mono',monospace; font-size:0.68rem; letter-spacing:0.28em;
+              color:#00e5ff; text-transform:uppercase;">Cyber-Matrix Console</div>
+  <div style="font-family:'JetBrains Mono',monospace; font-size:1.4rem; font-weight:800; margin-top:4px;
+              color:#00ff41; text-shadow:0 0 18px rgba(0,255,65,0.55);">▓ AgentSystem</div>
 </div>
 """,
     unsafe_allow_html=True,
@@ -439,13 +460,14 @@ choice = st.sidebar.radio(
 
 st.sidebar.markdown(
     f"""
-<div style="margin-top:10px; padding:14px 16px; border:1px solid rgba(255,255,255,0.08);
-            border-radius:16px; background:rgba(22,27,48,0.55);">
+<div style="margin-top:10px; padding:14px 16px; border:1px solid rgba(0,255,65,0.16);
+            border-radius:3px; background:rgba(4,24,12,0.66);">
   <div style="display:flex; align-items:center; gap:8px;">
     <span class="dot"></span>
-    <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#9aa3c7;">SYSTEM ONLINE</span>
+    <span style="font-family:'JetBrains Mono',monospace; font-size:0.74rem; color:#4d9a68;
+                 letter-spacing:0.14em;">SYSTEM ONLINE</span>
   </div>
-  <div style="margin-top:10px; font-family:'JetBrains Mono',monospace; font-size:0.82rem; color:#e7ecff;">
+  <div style="margin-top:10px; font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#00ff41;">
     {agent_count} agents · operational
   </div>
 </div>
@@ -454,14 +476,14 @@ st.sidebar.markdown(
 )
 
 st.sidebar.write("")
-if st.sidebar.button("🔄 New Session", use_container_width=True):
+if st.sidebar.button("↻ NEW SESSION", use_container_width=True):
     new_id = orch.reset_session()
     st.session_state.messages = []
     st.sidebar.success(f"Session: {new_id[:12]}…")
     st.rerun()
 
 st.sidebar.divider()
-st.sidebar.caption("AgentSystem · Aurora · Boil the Ocean")
+st.sidebar.caption("AgentSystem · Cyber-Matrix · Boil the Ocean")
 st.sidebar.caption("[GitHub](https://github.com/claudeherve-ai/AgentSystem)")
 
 # ── Route ───────────────────────────────────────────────────────────────────

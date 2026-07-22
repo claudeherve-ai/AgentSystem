@@ -83,10 +83,18 @@ ENV APP_ENV=production
 # Disable Streamlit file watcher in container (avoids inotify limit errors
 # with 300+ skills files). Not needed — container images are immutable.
 ENV STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
-# Raise inotify limits for skills file watching (best-effort in container)
-RUN echo "fs.inotify.max_user_instances=1024" >> /etc/sysctl.conf 2>/dev/null || true
 
-# Expose Streamlit (8501) and FastAPI (8080)
+# ── Non-root runtime user ─────────────────────────────────────────────
+# Streamlit + FastAPI don't need root. Playwright chromium and all deps
+# are already installed system-wide above.
+RUN useradd -m -u 10001 appuser \
+    && mkdir -p /home/appuser/.cache \
+    && cp -r /root/.cache/ms-playwright /home/appuser/.cache/ms-playwright \
+    && chmod +x /app/scripts/docker-entrypoint.sh \
+    && chown -R appuser:appuser /app /home/appuser
+USER appuser
+
+# Expose Streamlit (8501) and FastAPI (8080 — /health /readiness /live)
 EXPOSE 8501 8080
 
 # Labels
@@ -94,13 +102,9 @@ LABEL org.opencontainers.image.source="https://github.com/claudeherve-ai/AgentSy
 LABEL org.opencontainers.image.description="AgentSystem — Multi-Agent Enterprise Orchestrator with Claude Skills"
 LABEL org.opencontainers.image.title="AgentSystem"
 
-# Health check
+# Health check (Streamlit web tier; FastAPI /health checked by ACA probes)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8501/_stcore/health || exit 1
 
-# Default: Streamlit dashboard
-CMD ["streamlit", "run", "dashboard.py", \
-     "--server.port=8501", \
-     "--server.address=0.0.0.0", \
-     "--server.headless=true", \
-     "--browser.serverAddress=0.0.0.0"]
+# Default: launcher runs both Streamlit (8501) and FastAPI (8080)
+CMD ["/app/scripts/docker-entrypoint.sh"]
