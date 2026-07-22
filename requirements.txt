@@ -1,6 +1,9 @@
 # AgentSystem - Dependencies
 agent-framework-core>=1.0.0,<2
 agent-framework-openai>=1.0.0,<2
+# Pin openai: agent-framework-openai 1.x imports ResponseToolSearchCall which was
+# removed in openai>=2.4x. openai 2.36.0 is the known-good version (matches local venv).
+openai==2.36.0
 python-dotenv>=1.0.0
 pydantic>=2.0.0
 aiosqlite>=0.20.0
@@ -56,4 +59,4 @@ openpyxl>=3.1.0
 # rides on agent-framework-core (already pinned above). Voice is also fully
 # fail-closed: the OpenAI Realtime adapter only activates when the `openai`
 # package (a transitive dep of agent-framework-openai above) is importable
-# AND VOICE_ENABLED=true with a real OPENAI_API_KEY. No extra install needed.
+# AND VOICE_ENABLED=true with a real OPENAI_API_KEY. No extra install needed.
