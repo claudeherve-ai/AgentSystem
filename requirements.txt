@@ -59,4 +59,25 @@ openpyxl>=3.1.0
 # rides on agent-framework-core (already pinned above). Voice is also fully
 # fail-closed: the OpenAI Realtime adapter only activates when the `openai`
 # package (a transitive dep of agent-framework-openai above) is importable
-# AND VOICE_ENABLED=true with a real OPENAI_API_KEY. No extra install needed.azure-monitor-opentelemetry>=1.6.0
+# AND VOICE_ENABLED=true with a real OPENAI_API_KEY. No extra install needed.
+azure-monitor-opentelemetry>=1.6.0
+
+# ── Durable multi-user backend (Workstreams B & C) ─────────────────────────
+# Async ORM + migrations for durable, tenant-scoped PostgreSQL state. greenlet
+# is required by SQLAlchemy's async engine. aiosqlite (above) powers the SQLite
+# dev/test mode; asyncpg is the production PostgreSQL driver.
+sqlalchemy[asyncio]>=2.0.30
+alembic>=1.13.0
+greenlet>=3.0.0
+asyncpg>=0.29.0
+# Redis-backed distributed rate limits / coordination (Entra + TLS in prod).
+redis>=5.0.0
+# Verified Microsoft Entra JWT bearer validation (cached OpenID signing keys).
+pyjwt[crypto]>=2.8.0
+# Async Azure Blob artifact store (managed identity via azure-identity above).
+azure-storage-blob>=12.19.0
+# ── Optional cloud adapters (import-guarded; absent installs degrade safely) ─
+# Azure Container Apps Dynamic Sessions uses httpx (already pinned) + managed
+# identity. The Durable Task Scheduler SDK below is only needed when
+# DURABLE_MODE=dts; local/dev uses the deterministic in-process executor.
+durabletask-azuremanaged>=1.9.0,<2.0.0

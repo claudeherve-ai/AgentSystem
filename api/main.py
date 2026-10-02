@@ -27,10 +27,15 @@ from api.routes.chat import router as chat_router
 from api.routes.health import router as health_router
 from api.routes.models import router as models_router
 from api.routes.observability import router as observability_router
+from api.routes.runs import router as runs_router
 from api.routes.voice import router as voice_router
 from api.routes.workflows import router as workflows_router
-from api.middleware.auth import AuthMiddleware
-from api.middleware.rate_limit import RateLimitMiddleware
+from api.middleware.context import (
+    IdentityMiddleware,
+    PrincipalRateLimitMiddleware,
+    RequestContextMiddleware,
+    SharedRateLimitMiddleware,
+)
 from api.middleware.telemetry import TelemetryMiddleware
 
 logger = logging.getLogger("agentsystem.api")
@@ -63,6 +68,22 @@ async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
     # Startup
     logger.info("AgentSystem API starting up...")
+    # Bootstrap the local SQLite schema for dev/test; PostgreSQL schema is owned
+    # by Alembic migrations and must NOT be auto-created in production.
+    try:
+        from agentsystem.settings import get_settings
+        from agentsystem.db.session import init_models
+
+        settings = get_settings()
+        if settings.is_production and not settings.database_config_ready:
+            raise RuntimeError(
+                "Production requires an explicit PostgreSQL DATABASE_URL."
+            )
+        if settings.is_sqlite:
+            await init_models()
+            logger.info("SQLite schema initialized for local development.")
+    except Exception as exc:  # noqa: BLE001 - never block startup on bootstrap
+        logger.warning("Database bootstrap skipped: %s", type(exc).__name__)
     get_orchestrator()  # Pre-load agents
     # Best-effort cleanup of any sandbox containers leaked by a previous run.
     try:
@@ -76,6 +97,12 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     logger.info("AgentSystem API shutting down...")
+    try:
+        from agentsystem.services.rate_limit import get_rate_limiter
+
+        await get_rate_limiter().aclose()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ── App Factory ─────────────────────────────────────────────────────────────
@@ -108,18 +135,23 @@ def create_app() -> FastAPI:
     )
 
     # Custom middleware. Starlette runs the LAST-added middleware OUTERMOST.
-    # Order (outer -> inner): Telemetry -> RateLimit -> Auth -> route.
-    #  - Telemetry is outermost so the root span wraps the whole request.
-    #  - RateLimit sits OUTSIDE Auth so unauthenticated floods (e.g. invalid-key
-    #    brute force) are throttled before the auth check runs.
-    app.add_middleware(AuthMiddleware)
-    app.add_middleware(RateLimitMiddleware)
+    # Order (outer -> inner): RequestContext -> Telemetry -> SharedRateLimit ->
+    # Identity -> PrincipalRateLimit -> route.
+    #  - RequestContext is outermost: it stamps request_id and renders EVERY
+    #    error as the single structured envelope (never a raw provider trace).
+    #  - SharedRateLimit sits OUTSIDE Identity so unauthenticated floods are
+    #    throttled before the (more expensive) identity validation runs.
+    app.add_middleware(PrincipalRateLimitMiddleware)
+    app.add_middleware(IdentityMiddleware)
+    app.add_middleware(SharedRateLimitMiddleware)
     app.add_middleware(TelemetryMiddleware)
+    app.add_middleware(RequestContextMiddleware)
 
     # Routes
     app.include_router(health_router, tags=["Health"])
     app.include_router(agents_router, prefix="/api/v1/agents", tags=["Agents"])
     app.include_router(chat_router, prefix="/api/v1/chat", tags=["Chat"])
+    app.include_router(runs_router, prefix="/api/v1/runs", tags=["Runs"])
     app.include_router(models_router, prefix="/api/v1/models", tags=["Models"])
     app.include_router(
         approvals_router, prefix="/api/v1/approvals", tags=["Approvals"]

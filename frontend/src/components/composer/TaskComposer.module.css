@@ -1,0 +1,122 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.optional {
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+.textarea,
+.input,
+.select {
+  background: var(--surface-2);
+  border: 1px solid var(--surface-border);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  resize: vertical;
+}
+
+.textarea:focus-visible,
+.input:focus-visible,
+.select:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+.row {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.modeGroup {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.legend {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 0;
+}
+
+.modeToggle {
+  display: inline-flex;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.modeButton {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  border: none;
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.modeButton:hover {
+  color: var(--text-primary);
+}
+
+.modeActive {
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan-strong);
+  font-weight: 600;
+}
+
+.error {
+  color: var(--accent-red);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.submit {
+  background: var(--accent-cyan);
+  color: var(--surface-0);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-6);
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: filter var(--duration-fast) var(--ease-standard);
+}
+
+.submit:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -1,17 +1,23 @@
 """
-Code interpreter tool — Python execution with selectable isolation.
+Code interpreter tool — Python execution with selectable, fail-closed isolation.
 
-By default (``CODE_SANDBOX_MODE=auto``) code runs inside a hardened, ephemeral
-Docker container (no network, read-only root filesystem, non-root user, CPU /
-memory / pids capped) when Docker is available. When Docker is not available the
-tool falls back to a local subprocess and emits a LOUD warning — the subprocess
-path is NOT a security boundary.
+Execution engine is chosen by :func:`agentsystem.sandbox.resolve_sandbox_engine`,
+which is fail-closed by design:
+
+* In a container / production runtime, generated code NEVER runs in a host
+  subprocess. ``CODE_SANDBOX_MODE=auto`` prefers Azure Container Apps Dynamic
+  Sessions, then a local Docker sandbox, and otherwise **refuses**.
+* A local Docker sandbox is used only when Docker is available.
+* The explicit ``subprocess`` mode is permitted only for local development
+  outside a container; it is refused in a container / production.
 
 Modes (env ``CODE_SANDBOX_MODE``):
-    auto        Docker if available, else subprocess with a visible warning (default)
-    docker      Docker only; refuse if Docker/image is unavailable
-    subprocess  Legacy local subprocess (no isolation)
-    off         Refuse to execute code at all
+    auto              Dynamic Sessions if configured, else Docker if available,
+                      else REFUSE (never a host subprocess) — default
+    dynamic_sessions  Azure Container Apps Dynamic Sessions only; refuse if unset
+    docker            Docker only; refuse if the daemon is unavailable
+    subprocess        Local host subprocess (dev only; refused in container/prod)
+    off               Refuse to execute code at all
 
 Every run is audited (``tools.audit``) and traced (``telemetry``). The returned
 Markdown keeps a stable shape: a header line, then ``## STDOUT`` / ``## STDERR``
@@ -93,36 +99,117 @@ async def run_python(
 
 
 async def _dispatch_run_python(code, timeout, cfg, audit_id):
-    """Pick an execution engine per ``cfg.mode`` and return a Markdown report.
+    """Pick an execution engine and return a Markdown report.
+
+    Engine selection is centralized in :func:`agentsystem.sandbox.resolve_sandbox_engine`
+    which fails closed: ``auto`` never runs a host subprocess in a container /
+    production, and unsupported runtimes are refused with a user-safe message.
 
     Returns ``(engine, isolated, fallback, markdown)``.
     """
-    mode = cfg.mode
+    from agentsystem.sandbox import (
+        ENGINE_DOCKER,
+        ENGINE_DYNAMIC_SESSIONS,
+        ENGINE_OFF,
+        ENGINE_REFUSE,
+        ENGINE_SUBPROCESS,
+        build_dynamic_sessions_interpreter,
+        resolve_sandbox_engine,
+    )
+    from agentsystem.settings import get_settings
 
-    if mode == "off":
+    settings = get_settings()
+    docker_ok = docker_sandbox.docker_available()
+    try:
+        ds_interpreter = build_dynamic_sessions_interpreter(settings)
+    except Exception:  # noqa: BLE001 - unconfigured/adapter error → not available
+        ds_interpreter = None
+
+    engine = resolve_sandbox_engine(
+        cfg.mode,
+        in_container=settings.in_container,
+        is_production=settings.is_production,
+        docker_available=docker_ok,
+        dynamic_sessions_configured=ds_interpreter is not None,
+    )
+
+    if engine == ENGINE_OFF:
         audit_log("CodeInterpreter.run_python", "refused",
                   {"reason": "sandbox disabled"}, parent_id=audit_id)
         return ("none", False, False,
                 "# Code execution refused\n\n"
                 "Code execution is disabled (`CODE_SANDBOX_MODE=off`).")
 
-    docker_ok = mode in ("auto", "docker") and docker_sandbox.docker_available()
-
-    if mode == "docker" and not docker_ok:
+    if engine == ENGINE_REFUSE:
+        reason = _refuse_reason(cfg.mode, settings, docker_ok)
         audit_log("CodeInterpreter.run_python", "refused",
-                  {"reason": "docker unavailable in strict mode"}, parent_id=audit_id)
-        return ("docker", False, False,
-                "# Code execution refused\n\n"
-                "`CODE_SANDBOX_MODE=docker` requires Docker, but the Docker "
-                "daemon is not reachable. Start Docker or switch to "
-                "`CODE_SANDBOX_MODE=auto`.")
+                  {"reason": reason, "mode": cfg.mode}, parent_id=audit_id)
+        return ("none", False, False,
+                "# Code execution refused (fail-closed)\n\n" + reason)
 
-    if docker_ok:
+    if engine == ENGINE_DYNAMIC_SESSIONS:
+        return await _run_python_dynamic_sessions(
+            ds_interpreter, code, timeout, audit_id
+        )
+
+    if engine == ENGINE_DOCKER:
         return await _run_python_docker(code, timeout, cfg, audit_id)
 
-    # subprocess (legacy) or auto-fallback
-    fallback = mode == "auto"
-    return await _run_python_subprocess(code, timeout, audit_id, fallback=fallback)
+    # engine == ENGINE_SUBPROCESS — only reachable via the EXPLICIT subprocess
+    # mode outside a container/production. It is not an implicit fallback.
+    return await _run_python_subprocess(code, timeout, audit_id, fallback=False)
+
+
+def _refuse_reason(mode: str, settings, docker_ok: bool) -> str:
+    """Human-safe explanation for a fail-closed refusal."""
+    if mode == "dynamic_sessions":
+        return (
+            "`CODE_SANDBOX_MODE=dynamic_sessions` requires a configured Azure "
+            "Container Apps Dynamic Sessions pool (`DYNAMIC_SESSIONS_ENDPOINT`)."
+        )
+    if mode == "docker":
+        return (
+            "`CODE_SANDBOX_MODE=docker` requires a reachable Docker daemon, but "
+            "none is available."
+        )
+    if mode == "subprocess":
+        return (
+            "Host subprocess execution is not permitted in a container or "
+            "production runtime. Use Dynamic Sessions (`DYNAMIC_SESSIONS_ENDPOINT`) "
+            "or a Docker sandbox."
+        )
+    # auto with nothing available
+    return (
+        "No isolated code sandbox is available. Configure Azure Container Apps "
+        "Dynamic Sessions (`DYNAMIC_SESSIONS_ENDPOINT`) or start Docker. Host "
+        "subprocess execution is never used automatically."
+    )
+
+
+async def _run_python_dynamic_sessions(interpreter, code, timeout, audit_id):
+    """Execute inside Azure Container Apps Dynamic Sessions."""
+    result = await interpreter.run_python(code, timeout=timeout)
+    if result.error:
+        audit_log("CodeInterpreter.run_python", "error",
+                  {"engine": "dynamic_sessions", "error": result.error},
+                  parent_id=audit_id)
+        return ("dynamic_sessions", True, False,
+                f"# Code execution failed (dynamic sessions)\n\n{result.error}")
+    audit_log(
+        "CodeInterpreter.run_python", "completed",
+        {"engine": "dynamic_sessions", "exit_code": result.exit_code},
+        parent_id=audit_id,
+    )
+    header = (
+        f"# Code execution (engine: dynamic_sessions · isolated · "
+        f"exit code: {result.exit_code})"
+    )
+    body = (
+        f"{header}\n\n"
+        f"## STDOUT\n```\n{_truncate(result.stdout) or '(empty)'}\n```\n\n"
+        f"## STDERR\n```\n{_truncate(result.stderr) or '(empty)'}\n```"
+    )
+    return ("dynamic_sessions", True, False, body)
 
 
 async def _run_python_docker(code, timeout, cfg, audit_id):

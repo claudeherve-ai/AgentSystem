@@ -1,0 +1,82 @@
+/**
+ * Design tokens for the AgentSystem mission-control shell.
+ *
+ * Palette: near-black/navy surfaces, warm off-white type, restrained
+ * cyan/green operational accents, amber/red for attention/danger states.
+ * Deliberately no purple gradients, no scanline/flicker effects.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces — layered near-black/navy, each step slightly lighter */
+  --surface-0: #05070d;
+  --surface-1: #0a0e18;
+  --surface-2: #0f1420;
+  --surface-3: #141b2b;
+  --surface-4: #1b2437;
+  --surface-border: #263149;
+  --surface-border-strong: #35415c;
+
+  /* Type — warm off-white, not stark white */
+  --text-primary: #f2ede3;
+  --text-secondary: #b9c0d4;
+  --text-tertiary: #7c869e;
+  --text-inverse: #05070d;
+
+  /* Operational accents */
+  --accent-cyan: #3fd0c9;
+  --accent-cyan-strong: #63e8e1;
+  --accent-cyan-dim: #1d4d4d;
+  --accent-green: #6fce7f;
+  --accent-green-dim: #1f3f28;
+  --accent-amber: #f2b84b;
+  --accent-amber-dim: #4a3819;
+  --accent-red: #ea5f52;
+  --accent-red-dim: #4a201c;
+
+  /* Gradients / atmosphere — subtle, not decorative theater */
+  --grid-line: rgba(154, 176, 214, 0.05);
+  --noise-opacity: 0.035;
+  --glow-cyan: rgba(63, 208, 201, 0.16);
+
+  /* Radii / spacing / elevation */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 30px rgba(0, 0, 0, 0.35);
+  --shadow-raised: 0 18px 46px rgba(0, 0, 0, 0.45);
+
+  /* Typography */
+  --font-display: "Space Grotesk", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-body: "Public Sans", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
+
+  /* Motion */
+  --duration-fast: 120ms;
+  --duration-base: 220ms;
+  --duration-slow: 480ms;
+  --ease-standard: cubic-bezier(0.2, 0.6, 0.2, 1);
+
+  /* Focus ring */
+  --focus-ring: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--accent-cyan-strong);
+
+  /* z-index scale */
+  --z-skip-link: 100;
+  --z-topbar: 20;
+  --z-overlay: 40;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+  }
+}

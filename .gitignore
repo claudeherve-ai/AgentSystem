@@ -9,6 +9,9 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+.coverage
+coverage.xml
+htmlcov/
 dist/
 build/
 
@@ -20,6 +23,7 @@ build/
 memory/*.db
 memory/conversation_log/*.json
 memory/workflows/
+memory/profile_seed.json
 
 # OS
 Thumbs.db
@@ -41,3 +45,16 @@ claude-skills-slim
 memory/*.log
 memory/*.json
 memory/projects/
+
+# .NET build output
+**/bin/
+**/obj/
+
+# Frontend
+node_modules/
+apps/web/dist/
+apps/web/coverage/
+
+# Local orchestration
+.azure/*.env
+docker-compose.override.yml

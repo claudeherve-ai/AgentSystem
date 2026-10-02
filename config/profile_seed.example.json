@@ -1,0 +1,17 @@
+[
+  {
+    "key": "display_name",
+    "value": "Example User",
+    "category": "identity"
+  },
+  {
+    "key": "timezone",
+    "value": "UTC",
+    "category": "preference"
+  },
+  {
+    "key": "briefing_format",
+    "value": "short bullets with urgent items first",
+    "category": "preference"
+  }
+]

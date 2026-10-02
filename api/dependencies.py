@@ -30,3 +30,28 @@ def get_orchestrator():
             len(_orchestrator.agent_names),
         )
     return _orchestrator
+
+
+# ── Durable run service singleton (lazy init) ───────────────────────────────
+_run_service = None
+
+
+def get_run_service():
+    """Lazy-load the durable run service.
+
+    Wires the run service to the shared orchestrator and the configured durable
+    executor. Tests inject their own :class:`agentsystem.services.RunService`.
+    """
+    global _run_service
+    if _run_service is None:
+        from agentsystem.services import RunService
+
+        _run_service = RunService(orchestrator_provider=get_orchestrator)
+        logger.info("Durable run service initialized")
+    return _run_service
+
+
+def set_run_service(service) -> None:
+    """Inject/replace the run service (tests)."""
+    global _run_service
+    _run_service = service

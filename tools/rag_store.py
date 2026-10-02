@@ -80,14 +80,20 @@ def _env(name: str, default: str = "") -> str:
 
 
 def embeddings_enabled() -> bool:
-    """Return True only when a deployment is configured AND not explicitly disabled."""
+    """Return True when a deployment and key or Entra authentication are configured."""
     flag = _env("RAG_EMBEDDINGS_ENABLED", "auto").lower()
     if flag in {"false", "0", "no", "off"}:
         return False
     deployment = _env("AZURE_EMBEDDING_DEPLOYMENT") or _env("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
     endpoint = _env("AZURE_OPENAI_ENDPOINT")
     api_key = _env("AZURE_OPENAI_API_KEY")
-    if not (deployment and endpoint and api_key):
+    use_entra = _env("AZURE_OPENAI_USE_ENTRA", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if not (deployment and endpoint and (api_key or use_entra)):
         return False
     return True
 
@@ -251,7 +257,22 @@ async def _embed_text(text: str, *, timeout: float = 30.0) -> Optional[list[floa
     api_key = _env("AZURE_OPENAI_API_KEY")
     api_version = _env("AZURE_EMBEDDING_API_VERSION", "2024-12-01-preview")
     url = f"{endpoint}/openai/deployments/{deployment}/embeddings?api-version={api_version}"
-    headers = {"api-key": api_key, "Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["api-key"] = api_key
+    else:
+        from azure.identity.aio import DefaultAzureCredential
+
+        credential = DefaultAzureCredential(
+            require_envvar=_env("APP_ENV").lower() in {"prod", "production"}
+        )
+        try:
+            token = await credential.get_token(
+                "https://cognitiveservices.azure.com/.default"
+            )
+            headers["Authorization"] = f"Bearer {token.token}"
+        finally:
+            await credential.close()
     payload = {"input": text[:8000]}
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -259,10 +280,8 @@ async def _embed_text(text: str, *, timeout: float = 30.0) -> Optional[list[floa
         if resp.status_code != 200:
             if not _EMBED_WARNED:
                 logger.warning(
-                    "RAG: embedding endpoint returned %s — falling back to FTS5. "
-                    "Body (truncated): %s",
+                    "RAG: embedding endpoint returned %s — falling back to FTS5.",
                     resp.status_code,
-                    resp.text[:300],
                 )
                 _EMBED_WARNED = True
             return None

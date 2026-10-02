@@ -113,9 +113,9 @@ class ModelConfig(BaseModel):
 
     @property
     def has_azure_credentials(self) -> bool:
-        """True when both Azure endpoint and key are present and not placeholders."""
-        return not _is_placeholder(self.azure_endpoint) and not _is_placeholder(
-            self.azure_api_key
+        """True when Azure OpenAI has an endpoint and a supported auth method."""
+        return not _is_placeholder(self.azure_endpoint) and (
+            not _is_placeholder(self.azure_api_key) or self.azure_use_entra
         )
 
     @property
@@ -176,12 +176,33 @@ class ModelConfig(BaseModel):
         return _clean_env("AZURE_OPENAI_API_KEY")
 
     @property
+    def azure_use_entra(self) -> bool:
+        return _clean_bool("AZURE_OPENAI_USE_ENTRA", False)
+
+    @property
     def azure_api_version(self) -> str:
         return _clean_env("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
 
     @property
     def openai_api_key(self) -> str:
         return _clean_env("OPENAI_API_KEY")
+
+
+def get_azure_openai_auth_kwargs(model_config: ModelConfig) -> dict[str, Any]:
+    """Return key- or Entra-based auth arguments for Agent Framework clients."""
+    if not _is_placeholder(model_config.azure_api_key):
+        return {"api_key": model_config.azure_api_key}
+    if model_config.azure_use_entra:
+        from azure.identity import DefaultAzureCredential
+
+        require_envvar = _clean_env("APP_ENV").lower() in {"prod", "production"}
+        return {
+            "credential": DefaultAzureCredential(require_envvar=require_envvar),
+        }
+    raise MissingModelCredentialsError(
+        "Azure OpenAI requires AZURE_OPENAI_API_KEY or "
+        "AZURE_OPENAI_USE_ENTRA=true."
+    )
 
 
 class SystemConfig(BaseModel):
@@ -234,7 +255,7 @@ def get_guardrails_config() -> dict[str, Any]:
 #   docker     -> strict; require Docker, never fall back. Refuse if unavailable.
 #   subprocess -> legacy host subprocess (NOT a security boundary).
 #   off        -> code execution disabled; calls return a clear refusal.
-_VALID_SANDBOX_MODES = {"auto", "docker", "subprocess", "off"}
+_VALID_SANDBOX_MODES = {"auto", "docker", "subprocess", "off", "dynamic_sessions"}
 
 
 class SandboxConfig(BaseModel):

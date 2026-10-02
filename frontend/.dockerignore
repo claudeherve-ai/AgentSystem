@@ -1,0 +1,10 @@
+# Docker build context excludes for frontend/ (build context = ./frontend,
+# see azure.yaml). Keeps `npm ci` layer cache-friendly and the context small.
+node_modules
+dist
+coverage
+.git
+.env
+.env.*
+*.log
+tests/

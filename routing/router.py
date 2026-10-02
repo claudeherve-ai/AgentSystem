@@ -30,6 +30,7 @@ from agent_framework.openai import OpenAIChatCompletionClient
 from config import (
     MissingModelCredentialsError,
     ModelConfig,
+    get_azure_openai_auth_kwargs,
     get_model_config,
     get_models_config,
 )
@@ -166,7 +167,8 @@ class ModelRouter:
         raise MissingModelCredentialsError(
             f"No usable provider for profile '{requested}'. Tried "
             f"{order} but none of azure_openai/openai had credentials. "
-            "Set AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_API_KEY, or OPENAI_API_KEY."
+            "Set AZURE_OPENAI_ENDPOINT plus AZURE_OPENAI_API_KEY or "
+            "AZURE_OPENAI_USE_ENTRA=true, or set OPENAI_API_KEY."
         )
 
     # ── client building (cached; secret-free cache key) ───────────────────
@@ -183,8 +185,8 @@ class ModelRouter:
             return self._client_factory(
                 model=model,
                 azure_endpoint=self._model_config.azure_endpoint,
-                api_key=self._model_config.azure_api_key,
                 api_version=self._model_config.azure_api_version,
+                **get_azure_openai_auth_kwargs(self._model_config),
             )
         return self._client_factory(
             model=model,

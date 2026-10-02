@@ -1,0 +1,8 @@
+/**
+ * Distinctive display/body/mono font stack loaded progressively via a web
+ * font import. If the network request is blocked (offline, restrictive CSP,
+ * air-gapped deployment) the browser silently falls back to the system
+ * stack declared alongside each family in tokens.css — no JS is required
+ * for this and layout/legibility are unaffected.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
