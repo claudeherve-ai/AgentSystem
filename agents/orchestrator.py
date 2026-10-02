@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import (
     MissingModelCredentialsError,
     get_agent_configs,
+    get_azure_openai_auth_kwargs,
     get_model_config,
     get_models_config,
     get_system_config,
@@ -186,9 +187,9 @@ def create_model_client() -> OpenAIChatCompletionClient:
 
     if not (model_cfg.has_azure_credentials or model_cfg.has_openai_credentials):
         raise MissingModelCredentialsError(
-            "No LLM provider is configured. Set AZURE_OPENAI_ENDPOINT + "
-            "AZURE_OPENAI_API_KEY, or OPENAI_API_KEY, in your .env "
-            "(placeholder values like <your-key> are ignored)."
+            "No LLM provider is configured. Set AZURE_OPENAI_ENDPOINT plus "
+            "AZURE_OPENAI_API_KEY or AZURE_OPENAI_USE_ENTRA=true, or set "
+            "OPENAI_API_KEY (placeholder values are ignored)."
         )
 
     provider = model_cfg.effective_provider
@@ -206,8 +207,8 @@ def create_model_client() -> OpenAIChatCompletionClient:
         return OpenAIChatCompletionClient(
             model=model_name,
             azure_endpoint=model_cfg.azure_endpoint,
-            api_key=model_cfg.azure_api_key,
             api_version=model_cfg.azure_api_version,
+            **get_azure_openai_auth_kwargs(model_cfg),
         )
     return OpenAIChatCompletionClient(
         model=model_name, api_key=model_cfg.openai_api_key,
@@ -241,6 +242,33 @@ def get_default_agent_options() -> dict[str, Any]:
     return options
 
 
+@dataclass(slots=True)
+class SessionState:
+    """Per-conversation execution state.
+
+    Bundling ``session_id`` + the Agent Framework :class:`AgentSession` + the
+    session-scoped ``case_context`` into ONE object is what lets the HTTP layer
+    give every request/run its own isolated state instead of sharing a single
+    process-global session across all users. CLI/local callers get their own
+    dedicated instance too.
+    """
+
+    session_id: str
+    conversation_session: AgentSession
+    case_context: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class TurnResult:
+    """Structured result of one orchestrator turn (real agent attribution)."""
+
+    text: str
+    agents_used: list[str] = field(default_factory=list)
+    selected_agent: Optional[str] = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
 class Orchestrator:
     """Central orchestrator with inter-agent handoff."""
 
@@ -251,13 +279,79 @@ class Orchestrator:
         self._registrations: dict[str, AgentRegistration] = {}
         self._agents: dict[str, Agent] = {}
         self._coordinator: Optional[Agent] = None
+        self._api_coordinator: Optional[Agent] = None
         self._memory_store = MEMORY_STORE
-        self._active_session_id = self._memory_store.get_active_session_id()
-        self._conversation_session = AgentSession(session_id=self._active_session_id)
         self._creating: set[str] = set()
-        # Session-scoped case memory — persists across agent handoffs within a session
-        self.case_context: dict[str, Any] = {}
+        # Backward-compatible LOCAL session state for CLI / dashboard callers.
+        # The API path NEVER uses this — it passes its own isolated SessionState
+        # so one user's conversation can never leak into another's.
+        local_session_id = self._memory_store.get_active_session_id()
+        self._local_session_state = SessionState(
+            session_id=local_session_id,
+            conversation_session=AgentSession(session_id=local_session_id),
+        )
         self._artifact_dirs_initialized = False  # Track agents being created to break circular handoffs
+
+    # ── Backward-compatible accessors (delegate to the LOCAL session) ────────
+    @property
+    def _active_session_id(self) -> str:
+        return self._local_session_state.session_id
+
+    @_active_session_id.setter
+    def _active_session_id(self, value: str) -> None:
+        self._local_session_state.session_id = value
+
+    @property
+    def _conversation_session(self) -> AgentSession:
+        return self._local_session_state.conversation_session
+
+    @_conversation_session.setter
+    def _conversation_session(self, value: AgentSession) -> None:
+        self._local_session_state.conversation_session = value
+
+    @property
+    def case_context(self) -> dict[str, Any]:
+        return self._local_session_state.case_context
+
+    @case_context.setter
+    def case_context(self, value: dict[str, Any]) -> None:
+        self._local_session_state.case_context = value
+
+    def new_session_state(
+        self,
+        session_id: Optional[str] = None,
+        persisted_state: Optional[dict[str, Any]] = None,
+    ) -> SessionState:
+        """Build a fresh, ISOLATED session state (honoring ``session_id``).
+
+        The API layer calls this per request so each user/session gets its own
+        conversation history and case context. When ``session_id`` is provided
+        it is honored so a client can continue an existing conversation.
+        """
+        sid = session_id or self._memory_store.start_new_session()
+        conversation_session = AgentSession(session_id=sid)
+        case_context: dict[str, Any] = {}
+        if persisted_state:
+            serialized_session = persisted_state.get("conversation_session")
+            if serialized_session:
+                conversation_session = AgentSession.from_dict(serialized_session)
+                if conversation_session.session_id != sid:
+                    raise ValueError("persisted conversation session id mismatch")
+            serialized_context = persisted_state.get("case_context", {})
+            if isinstance(serialized_context, dict):
+                case_context = dict(serialized_context)
+        return SessionState(
+            session_id=sid,
+            conversation_session=conversation_session,
+            case_context=case_context,
+        )
+
+    def serialize_session_state(self, state: SessionState) -> dict[str, Any]:
+        """Return the JSON-safe snapshot stored with the durable session."""
+        return {
+            "conversation_session": state.conversation_session.to_dict(),
+            "case_context": dict(state.case_context),
+        }
 
     def _get_model_client(self) -> OpenAIChatCompletionClient:
         if self._model_client is None:
@@ -489,11 +583,11 @@ class Orchestrator:
             f"{routing_guide}"
         )
 
-    def _get_or_create_coordinator(self) -> Agent:
-        if self._coordinator is None:
+    def _get_or_create_coordinator(self, *, include_legacy_memory: bool = True) -> Agent:
+        coordinator = self._coordinator if include_legacy_memory else self._api_coordinator
+        if coordinator is None:
             specialist_tools = (
                 list(BROWSE_TOOLS)
-                + list(MEMORY_TOOLS)
                 + list(DAILY_BRIEFING_TOOLS)
                 + list(END_OF_DAY_TOOLS)
                 + list(DRAFT_REPLY_TOOLS)
@@ -523,6 +617,8 @@ class Orchestrator:
                 + list(PLANS_TOOLS)
                 + list(SCREEN_CONTEXT_TOOLS)
             )
+            if include_legacy_memory:
+                specialist_tools.extend(MEMORY_TOOLS)
             for registration in self._registrations.values():
                 agent = self._get_or_create_agent(registration.name)
                 if agent is None:
@@ -536,7 +632,7 @@ class Orchestrator:
                     )
                 )
 
-            self._coordinator = Agent(
+            coordinator = Agent(
                 name="Orchestrator",
                 description="Coordinator that routes tasks and combines specialist results",
                 client=self._get_model_client(),
@@ -544,12 +640,30 @@ class Orchestrator:
                 tools=specialist_tools,
                 default_options=get_default_agent_options(),
             )
-        return self._coordinator
+            if include_legacy_memory:
+                self._coordinator = coordinator
+            else:
+                self._api_coordinator = coordinator
+        return coordinator
 
-    def _build_contextualized_task(self, task: str) -> str:
+    def _build_contextualized_task(
+        self,
+        task: str,
+        session_id: Optional[str] = None,
+        *,
+        include_legacy_memory: bool = True,
+    ) -> str:
+        sid = session_id or self._active_session_id
+        if not include_legacy_memory:
+            return (
+                "Continue the scoped conversation using only the supplied "
+                "session state. Do not read or write legacy global memory.\n\n"
+                "CURRENT USER MESSAGE\n"
+                f"{task}"
+            )
         memory_summary = self._memory_store.build_memory_summary(limit=12)
         recent_turns = self._memory_store.render_recent_turns(
-            self._active_session_id, limit=6,
+            sid, limit=6,
         )
         return (
             "Continue an ongoing conversation with the same human user.\n"
@@ -598,6 +712,7 @@ class Orchestrator:
         self._registrations[name] = registration
         self._agents.pop(name, None)
         self._coordinator = None
+        self._api_coordinator = None
 
         logger.info(
             "Registered agent: %s (tools: %d, handoffs: %d)",
@@ -613,9 +728,42 @@ class Orchestrator:
     def agent_names(self) -> list[str]:
         return list(self._registrations.keys())
 
-    async def route_task(self, task: str) -> str:
+    async def route_task(
+        self,
+        task: str,
+        *,
+        session_state: Optional["SessionState"] = None,
+        context: Any = None,
+    ) -> str:
+        """Route a task and return the final response text.
+
+        ``session_state`` isolates conversation/case state per caller. When it is
+        ``None`` the backward-compatible LOCAL state is used (CLI / dashboard),
+        which is NEVER shared with API requests. ``context`` is an optional
+        :class:`agentsystem.context.RunContext` used only for telemetry
+        correlation.
+        """
+        result = await self.run_turn(
+            task, session_state=session_state, context=context
+        )
+        return result.text
+
+    async def run_turn(
+        self,
+        task: str,
+        *,
+        session_state: Optional["SessionState"] = None,
+        context: Any = None,
+    ) -> "TurnResult":
+        """Execute one turn and return structured attribution.
+
+        This is the durable-run entry point: the run service calls it with an
+        explicit, isolated :class:`SessionState` per run so no orchestration
+        state is shared across users.
+        """
+        state = session_state or self._local_session_state
         if not self._registrations:
-            return "No agents registered. Please register agents first."
+            return TurnResult(text="No agents registered. Please register agents first.")
 
         async with get_tracer().span(
             "agent.route_task",
@@ -623,27 +771,40 @@ class Orchestrator:
             attributes={
                 "task.length": len(task),
                 "agents.registered": len(self._registrations),
+                "session.id": state.session_id,
             },
         ) as span:
+            if context is not None:
+                try:
+                    for key, value in context.as_log_fields().items():
+                        span.set_attribute(f"ctx.{key}", value)
+                except Exception:  # pragma: no cover - telemetry must not break routing
+                    pass
             log_action("Orchestrator", "route_task", task[:200], status="started")
             self._annotate_routing(span)
-            coordinator = self._get_or_create_coordinator()
-            contextualized_task = self._build_contextualized_task(task)
+            is_api_request = context is not None
+            coordinator = self._get_or_create_coordinator(
+                include_legacy_memory=not is_api_request
+            )
+            contextualized_task = self._build_contextualized_task(
+                task,
+                session_id=state.session_id,
+                include_legacy_memory=not is_api_request,
+            )
 
             # ── Attempt 1 ──
             try:
                 result = await coordinator.run(
                     contextualized_task,
-                    session=self._conversation_session,
+                    session=state.conversation_session,
                 )
             except Exception as exc:
                 exc_name = type(exc).__name__
                 if "ContentFilter" in exc_name or "content_filter" in str(exc):
                     logger.warning("Content filter tripped on coordinator call — resetting session and retrying")
                     span.add_event("content_filter.retry", {"stage": "coordinator"})
-                    # Auto-reset session to clear conversation history that may trigger filter
-                    self.reset_session()
-                    self._conversation_session = AgentSession(session_id=self._active_session_id)
+                    # Auto-reset THIS state to clear conversation history that may trigger filter
+                    self._reset_state(state)
                     # Retry with clean session + simpler prompt
                     try:
                         safe_task = (
@@ -653,11 +814,11 @@ class Orchestrator:
                             "Keep it brief and professional.\n\n"
                             f"User request: {task}"
                         )
-                        result = await coordinator.run(safe_task, session=self._conversation_session)
+                        result = await coordinator.run(safe_task, session=state.conversation_session)
                     except Exception as retry_exc:
                         logger.error("Retry also failed: %s", retry_exc)
                         span.set_attribute("route.outcome", "content_filter_blocked")
-                        return (
+                        return TurnResult(text=(
                             "⚠️  Azure OpenAI's content filter is blocking this request "
                             "(jailbreak filter false positive).\n\n"
                             "Fix: Configure a custom content filter in Azure AI Foundry:\n"
@@ -665,7 +826,7 @@ class Orchestrator:
                             "  2. Create filter with 'jailbreak' severity set to 'low' or 'off'\n"
                             "  3. Assign it to deployment 'gpt-5.4-mini'\n\n"
                             "Temporary workaround: Type `reset` and try with simpler phrasing."
-                        )
+                        ))
                 else:
                     raise
 
@@ -683,15 +844,14 @@ class Orchestrator:
             ):
                 logger.warning("Subagent content filter detected — resetting and retrying once")
                 span.add_event("content_filter.retry", {"stage": "subagent"})
-                self.reset_session()
-                self._conversation_session = AgentSession(session_id=self._active_session_id)
+                self._reset_state(state)
                 try:
                     safe_task = (
                         "The user has a simple request. Handle it directly and professionally. "
                         "Do not mention internal tool names or agent names.\n\n"
                         f"User: {task}"
                     )
-                    result = await coordinator.run(safe_task, session=self._conversation_session)
+                    result = await coordinator.run(safe_task, session=state.conversation_session)
                     final_response = getattr(result, "text", "")
                     # Don't flag again on retry — just return whatever we got
                 except Exception:
@@ -701,6 +861,10 @@ class Orchestrator:
                         "with jailbreak severity = low/off for deployment 'gpt-5.4-mini'.\n\n"
                         "Workaround: Type `reset`, then try your request with different wording."
                     )
+
+            # Real agent attribution: parse specialist tool calls from the result.
+            agents_used = self._extract_agents_used(result)
+            usage = self._extract_usage(result)
 
             # Opt-out self-review: on high-stakes tasks, run a rubber-duck pass
             # and annotate (never re-run) the draft when it surfaces real issues.
@@ -713,13 +877,98 @@ class Orchestrator:
                 task, final_response, span
             )
 
-            self._memory_store.save_turn(self._active_session_id, "user", task)
+            self._memory_store.save_turn(state.session_id, "user", task)
             if final_response:
-                self._memory_store.save_turn(self._active_session_id, "assistant", final_response)
+                self._memory_store.save_turn(state.session_id, "assistant", final_response)
 
             log_action("Orchestrator", "route_task", task[:200], final_response[:500], status="completed")
             span.set_attribute("response.length", len(final_response or ""))
-            return final_response or "Task completed but no response was generated."
+            if agents_used:
+                span.set_attribute("agents.used", ",".join(agents_used))
+            return TurnResult(
+                text=final_response or "Task completed but no response was generated.",
+                agents_used=agents_used,
+                selected_agent=agents_used[0] if agents_used else None,
+                prompt_tokens=usage[0],
+                completion_tokens=usage[1],
+            )
+
+    def _reset_state(self, state: "SessionState") -> None:
+        """Start a fresh conversation for one session state (isolated)."""
+        new_id = self._memory_store.start_new_session()
+        state.session_id = new_id
+        state.conversation_session = AgentSession(session_id=new_id)
+
+    def _extract_agents_used(self, result: Any) -> list[str]:
+        """Best-effort: which registered specialists the coordinator invoked.
+
+        Parses tool/function-call names off the result messages and maps them to
+        registered agent names (direct tool name or ``call_<agent>`` handoff).
+        Never raises — attribution is a nicety, not a correctness gate.
+        """
+        registered = set(self._registrations.keys())
+        used: list[str] = []
+        try:
+            messages = getattr(result, "messages", None) or []
+            for message in messages:
+                for call_name in self._iter_tool_call_names(message):
+                    name = call_name
+                    if name.startswith("call_"):
+                        name = name[len("call_"):]
+                    if name in registered and name not in used:
+                        used.append(name)
+        except Exception:  # pragma: no cover - defensive
+            return used
+        return used
+
+    @staticmethod
+    def _iter_tool_call_names(message: Any):
+        """Yield function/tool-call names from a message, tolerating AF shapes."""
+        # Common shapes: message.tool_calls[*].name, or content items with a
+        # ``name``/``function`` attribute for function calls.
+        for attr in ("tool_calls", "function_calls"):
+            calls = getattr(message, attr, None)
+            if calls:
+                for call in calls:
+                    name = getattr(call, "name", None) or getattr(
+                        getattr(call, "function", None), "name", None
+                    )
+                    if name:
+                        yield str(name)
+        contents = getattr(message, "contents", None) or getattr(
+            message, "content", None
+        )
+        if isinstance(contents, (list, tuple)):
+            for item in contents:
+                name = getattr(item, "name", None)
+                if name and getattr(item, "type", "") in (
+                    "function_call",
+                    "tool_call",
+                ):
+                    yield str(name)
+
+    @staticmethod
+    def _extract_usage(result: Any) -> tuple[int, int]:
+        """Best-effort (prompt_tokens, completion_tokens) from an AF result."""
+        try:
+            usage = getattr(result, "usage", None) or getattr(
+                result, "usage_details", None
+            )
+            if usage is not None:
+                prompt = int(
+                    getattr(usage, "input_token_count", 0)
+                    or getattr(usage, "prompt_tokens", 0)
+                    or 0
+                )
+                completion = int(
+                    getattr(usage, "output_token_count", 0)
+                    or getattr(usage, "completion_tokens", 0)
+                    or 0
+                )
+                return prompt, completion
+        except Exception:  # pragma: no cover - defensive
+            pass
+        return 0, 0
 
     async def handle_user_input(self, user_input: str) -> str:
         logger.info(f"User input: {user_input[:100]}...")

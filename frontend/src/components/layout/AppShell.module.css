@@ -1,0 +1,32 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 15rem 1fr;
+}
+
+.main {
+  padding: var(--space-5) var(--space-6);
+  min-width: 0;
+}
+
+.main:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+@media (max-width: 900px) {
+  .body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .main {
+    padding: var(--space-4);
+  }
+}

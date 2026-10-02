@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "value": "${AZURE_ENV_NAME}" },
+    "location": { "value": "${AZURE_LOCATION=eastus2}" },
+    "alertReceiverEmail": { "value": "${ALERT_RECEIVER_EMAIL}" },
+    "postgresServerResourceId": { "value": "${POSTGRES_SERVER_RESOURCE_ID}" },
+    "postgresServerFqdn": { "value": "${POSTGRES_SERVER_FQDN}" },
+    "postgresServerLocation": { "value": "${POSTGRES_SERVER_LOCATION}" },
+    "postgresDatabaseName": { "value": "${POSTGRES_DATABASE_NAME=agentsystem}" },
+    "postgresApiUsername": { "value": "${POSTGRES_API_USERNAME}" },
+    "postgresWorkerUsername": { "value": "${POSTGRES_WORKER_USERNAME}" },
+    "registryPublicNetworkAccess": { "value": "${REGISTRY_PUBLIC_NETWORK_ACCESS=Disabled}" },
+    "imageTag": { "value": "${IMAGE_TAG}" },
+    "revisionSuffix": { "value": "${REVISION_SUFFIX}" },
+    "deployContainerApps": { "value": "${DEPLOY_CONTAINER_APPS=true}" },
+    "deployMigrationJob": { "value": "${DEPLOY_MIGRATION_JOB=false}" },
+    "entraTenantId": { "value": "${AZURE_TENANT_ID}" },
+    "entraAudience": { "value": "${ENTRA_AUDIENCE}" },
+    "entraClientId": { "value": "${ENTRA_CLIENT_ID}" },
+    "authMode": { "value": "entra_jwt" },
+    "easyAuthEnabled": { "value": true },
+    "entraClientSecretName": { "value": "${ENTRA_CLIENT_SECRET_NAME=microsoft-provider-authentication-secret}" },
+    "entraClientSecret": { "value": "${ENTRA_CLIENT_SECRET}" },
+    "azureOpenAiResourceGroupName": { "value": "${AZURE_OPENAI_RESOURCE_GROUP}" },
+    "azureOpenAiAccountName": { "value": "${AZURE_OPENAI_ACCOUNT_NAME}" },
+    "azureOpenAiEndpoint": { "value": "${AZURE_OPENAI_ENDPOINT}" },
+    "azureOpenAiChatDeployment": { "value": "${AZURE_OPENAI_CHAT_DEPLOYMENT}" },
+    "azureOpenAiEmbeddingDeployment": { "value": "${AZURE_OPENAI_EMBEDDING_DEPLOYMENT=}" },
+    "azureOpenAiApiVersion": { "value": "${AZURE_OPENAI_API_VERSION=2024-12-01-preview}" }
+  }
+}

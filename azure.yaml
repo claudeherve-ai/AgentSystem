@@ -1,20 +1,43 @@
 name: agentsystem
+metadata:
+  template: agentsystem-balanced-production@0.1.0
+
+# Four Azure Container Apps services, provisioned by infra/main.bicep (the
+# authoritative IaC source — see .azure/deployment-plan.md). Deliberately no
+# `env`, `resources`, `ports`, or `ingress` keys here: those are owned
+# entirely by infra/modules/containerApps.bicep for every service, so there
+# is exactly one place that defines container configuration. `azd deploy`
+# matches each service below to its Container App via the `azd-service-name`
+# tag set in Bicep (frontend | api | worker | operator).
 services:
-  app:
-    project: .
+  frontend:
+    project: ./frontend
+    language: js
     host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: .
+
+  api:
+    project: .
     language: python
-    dockerfile: Dockerfile
-    resources:
-      cpu: 1.0
-      memory: 2.0Gi
-    env:
-      - name: AGENTSYSTEM_MODE
-        value: dashboard
-      - name: PYTHONPATH
-        value: /app
-    ports:
-      - port: 8501
-    ingress:
-      external: true
-      targetPort: 8501
+    host: containerapp
+    docker:
+      path: ./apps/api/Dockerfile
+      context: .
+
+  worker:
+    project: .
+    language: python
+    host: containerapp
+    docker:
+      path: ./apps/worker/Dockerfile
+      context: .
+
+  operator:
+    project: .
+    language: python
+    host: containerapp
+    docker:
+      path: ./apps/operator/Dockerfile
+      context: .

@@ -1,0 +1,68 @@
+// Example Bicep parameters file for infra/main.bicep.
+//
+// This file is a TEMPLATE ONLY — copy it to `main.bicepparam` (untracked, or
+// tracked with real values only in a private/secure location) and replace
+// every placeholder below with real values before running `azd provision` /
+// `az deployment sub create`. No real subscription IDs, resource names, FQDNs,
+// email addresses, or secrets are present in this example.
+//
+// Nothing in this file is a secret: PostgreSQL/Redis/API-key values are
+// injected via Key Vault references and managed identity elsewhere in the
+// Bicep, never as plain parameters here.
+using './main.bicep'
+
+param environmentName = 'prod'
+param location = 'eastus2'
+param alertReceiverEmail = 'ops-alerts@example.com'
+
+// ---- Existing PostgreSQL Flexible Server (Central US) ----------------------
+// This server is referenced, never created or deleted, by infra/main.bicep.
+// Replace with the real resource ID/FQDN of your existing server.
+param postgresServerResourceId = '/subscriptions/<subscriptionId>/resourceGroups/<postgresResourceGroup>/providers/Microsoft.DBforPostgreSQL/flexibleServers/<postgresServerName>'
+param postgresServerFqdn = '<postgresServerName>.postgres.database.azure.com'
+param postgresDatabaseName = 'agentsystem'
+
+// Entra ID role names that must already be provisioned on the PostgreSQL
+// server for the API and worker user-assigned managed identities.
+param postgresApiUsername = 'msi-agentsystem-api-prod'
+param postgresWorkerUsername = 'msi-agentsystem-worker-prod'
+
+// Required only when applyPostgresHardening = true (opt-in, non-destructive
+// compute/storage/backup-retention resize of the existing server).
+param applyPostgresHardening = false
+// param postgresServerName = '<postgresServerName>'
+// param postgresServerResourceGroupName = '<postgresResourceGroup>'
+
+// ---- Replacement Container Registry ------------------------------------------
+// Public access is enabled only for the first image bootstrap, then disabled.
+param registryPublicNetworkAccess = 'Disabled'
+
+// ---- Authentication ----------------------------------------------------------
+param authMode = 'easy_auth'
+param easyAuthEnabled = true
+param entraClientId = '<entraApplicationId>'
+param entraAudience = 'api://<entraApplicationId>'
+// param entraTenantId = '<entraTenantId>' // defaults to the deployment tenant
+param entraClientSecretName = 'microsoft-provider-authentication-secret'
+param entraClientSecret = '<secure-deployment-parameter>'
+
+// ---- Container images --------------------------------------------------------
+// Leave the four *Image params empty to default to
+// "<created-ACR-login-server>/<service>:<imageTag>"; override explicitly to
+// pin a fully-qualified image reference instead.
+param imageTag = '<fullCommitSha>'
+param deployContainerApps = true
+
+// ---- Optional integrations ----------------------------------------------------
+param redisEnabled = true
+param azureOpenAiResourceGroupName = '<azureAiResourceGroup>'
+param azureOpenAiAccountName = '<azureAiAccountName>'
+param azureOpenAiEndpoint = 'https://<azureAiResource>.cognitiveservices.azure.com/'
+param azureOpenAiChatDeployment = '<chatDeployment>'
+param azureOpenAiEmbeddingDeployment = '<embeddingDeployment>'
+param azureOpenAiApiVersion = '2024-12-01-preview'
+
+// ---- Cost / observability guardrails -------------------------------------------
+param budgetAmount = 500
+param logAnalyticsDailyQuotaGb = 1
+param logAnalyticsRetentionInDays = 30

@@ -16,7 +16,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import MissingModelCredentialsError
+from config import (
+    MissingModelCredentialsError,
+    ModelConfig,
+    get_azure_openai_auth_kwargs,
+)
 from routing import (
     ModelCatalogError,
     ModelRouter,
@@ -49,12 +53,14 @@ class _FakeModelConfig:
         azure_api_version: str = "2024-01-01",
         azure_api_key: str = "AZURE-KEY-SECRET",
         openai_api_key: str = "sk-OPENAI-SECRET",
+        azure_use_entra: bool = False,
     ) -> None:
         self.has_azure_credentials = azure
         self.has_openai_credentials = openai
         self.azure_endpoint = azure_endpoint
         self.azure_api_version = azure_api_version
         self.azure_api_key = azure_api_key
+        self.azure_use_entra = azure_use_entra
         self.openai_api_key = openai_api_key
 
 
@@ -248,6 +254,51 @@ def test_build_client_is_cached_and_key_is_secret_free():
     assert "AZURE-SECRET.example.com" not in azure_key
     assert "AZURE-KEY-SECRET" not in azure_key
     print("✅ build_client caches once; cache key is minimal and secret-free")
+
+
+def test_model_config_accepts_explicit_entra_auth_without_key(monkeypatch):
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://resource.example.com")
+    monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("AZURE_OPENAI_USE_ENTRA", "true")
+
+    assert ModelConfig().has_azure_credentials is True
+
+
+def test_azure_openai_auth_prefers_api_key(monkeypatch):
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "secret-key")
+    monkeypatch.setenv("AZURE_OPENAI_USE_ENTRA", "true")
+
+    assert get_azure_openai_auth_kwargs(ModelConfig()) == {"api_key": "secret-key"}
+
+
+def test_router_uses_azure_credential_for_entra(monkeypatch):
+    credential = object()
+    monkeypatch.setattr(
+        "routing.router.get_azure_openai_auth_kwargs",
+        lambda _config: {"credential": credential},
+    )
+    calls = []
+
+    def factory(**kwargs):
+        calls.append(kwargs)
+        return object()
+
+    config = _FakeModelConfig(
+        azure=True,
+        azure_api_key="",
+        azure_use_entra=True,
+    )
+    router = ModelRouter(
+        load_catalog(),
+        model_config=config,
+        availability=_avail("azure_openai"),
+        client_factory=factory,
+    )
+
+    router.build_client("balanced")
+
+    assert calls[0]["credential"] is credential
+    assert "api_key" not in calls[0]
 
 
 def test_describe_is_secret_free():

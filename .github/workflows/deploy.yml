@@ -1,0 +1,276 @@
+name: Staged Azure deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment to deploy
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      ALERT_RECEIVER_EMAIL: ${{ vars.ALERT_RECEIVER_EMAIL }}
+      POSTGRES_SERVER_RESOURCE_ID: ${{ vars.POSTGRES_SERVER_RESOURCE_ID }}
+      POSTGRES_SERVER_FQDN: ${{ vars.POSTGRES_SERVER_FQDN }}
+      POSTGRES_DATABASE_NAME: ${{ vars.POSTGRES_DATABASE_NAME }}
+      POSTGRES_API_USERNAME: ${{ vars.POSTGRES_API_USERNAME }}
+      POSTGRES_WORKER_USERNAME: ${{ vars.POSTGRES_WORKER_USERNAME }}
+      ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
+      ENTRA_AUDIENCE: ${{ vars.ENTRA_AUDIENCE }}
+      ENTRA_CLIENT_SECRET: ${{ secrets.ENTRA_CLIENT_SECRET }}
+      ENTRA_CLIENT_SECRET_NAME: microsoft-provider-authentication-secret
+      AZURE_OPENAI_RESOURCE_GROUP: ${{ vars.AZURE_OPENAI_RESOURCE_GROUP }}
+      AZURE_OPENAI_ACCOUNT_NAME: ${{ vars.AZURE_OPENAI_ACCOUNT_NAME }}
+      AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+      AZURE_OPENAI_CHAT_DEPLOYMENT: ${{ vars.AZURE_OPENAI_CHAT_DEPLOYMENT }}
+      AZURE_OPENAI_EMBEDDING_DEPLOYMENT: ${{ vars.AZURE_OPENAI_EMBEDDING_DEPLOYMENT }}
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse --verify "${GITHUB_SHA}^{commit}"
+          required=(
+            AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID
+            AZURE_ENV_NAME AZURE_LOCATION ALERT_RECEIVER_EMAIL
+            POSTGRES_SERVER_RESOURCE_ID POSTGRES_SERVER_FQDN
+            POSTGRES_API_USERNAME POSTGRES_WORKER_USERNAME
+            ENTRA_CLIENT_ID ENTRA_AUDIENCE ENTRA_CLIENT_SECRET
+            AZURE_OPENAI_RESOURCE_GROUP AZURE_OPENAI_ACCOUNT_NAME
+            AZURE_OPENAI_ENDPOINT AZURE_OPENAI_CHAT_DEPLOYMENT
+          )
+          for name in "${required[@]}"; do
+            test -n "${!name:-}" || {
+              echo "Missing GitHub environment variable or secret: ${name}" >&2
+              exit 1
+            }
+          done
+          [[ "${IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Sign in to Azure with GitHub OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve existing PostgreSQL location
+        shell: bash
+        run: |
+          set -euo pipefail
+          POSTGRES_SERVER_LOCATION="$(az postgres flexible-server show \
+            --ids "${POSTGRES_SERVER_RESOURCE_ID}" \
+            --query location \
+            --output tsv)"
+          test -n "${POSTGRES_SERVER_LOCATION}"
+          echo "POSTGRES_SERVER_LOCATION=${POSTGRES_SERVER_LOCATION}" >> "${GITHUB_ENV}"
+
+      - name: Set up Azure Developer CLI
+        uses: azure/setup-azd@v2
+
+      - name: Set up container security tools
+        uses: aquasecurity/setup-trivy@v0.2.6
+
+      - name: Set up Syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Set up Cosign
+        uses: sigstore/cosign-installer@v3.8.2
+
+      - name: Initialize ephemeral AZD environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          azd env new "${AZURE_ENV_NAME}" --no-prompt
+          POSTGRES_DATABASE_NAME="${POSTGRES_DATABASE_NAME:-agentsystem}"
+          REVISION_SUFFIX="sha-${GITHUB_SHA:0:12}"
+          for name in \
+            AZURE_LOCATION ALERT_RECEIVER_EMAIL POSTGRES_SERVER_RESOURCE_ID \
+            POSTGRES_SERVER_FQDN POSTGRES_SERVER_LOCATION POSTGRES_DATABASE_NAME POSTGRES_API_USERNAME \
+            POSTGRES_WORKER_USERNAME AZURE_TENANT_ID ENTRA_CLIENT_ID \
+            ENTRA_AUDIENCE ENTRA_CLIENT_SECRET_NAME AZURE_OPENAI_RESOURCE_GROUP \
+            AZURE_OPENAI_ACCOUNT_NAME AZURE_OPENAI_ENDPOINT \
+            AZURE_OPENAI_CHAT_DEPLOYMENT AZURE_OPENAI_EMBEDDING_DEPLOYMENT \
+            IMAGE_TAG; do
+            azd env set "${name}" "${!name:-}"
+          done
+          azd env set REVISION_SUFFIX "${REVISION_SUFFIX}"
+          azd env set ENTRA_CLIENT_SECRET "${ENTRA_CLIENT_SECRET}"
+          azd env set DEPLOY_CONTAINER_APPS false
+          azd env set DEPLOY_MIGRATION_JOB false
+          azd env set REGISTRY_PUBLIC_NETWORK_ACCESS Enabled
+
+      - name: Preview and provision foundation
+        run: |
+          azd provision --preview --no-prompt
+          azd provision --no-prompt
+
+      - name: Build, scan, push, attest, and sign immutable images
+        shell: bash
+        run: |
+          set -euo pipefail
+          acr_name="$(azd env get-value AZURE_CONTAINER_REGISTRY_NAME)"
+          login_server="$(azd env get-value AZURE_CONTAINER_REGISTRY_ENDPOINT)"
+          az acr login --name "${acr_name}"
+
+          declare -A dockerfiles=(
+            [frontend]="frontend/Dockerfile"
+            [api]="apps/api/Dockerfile"
+            [worker]="apps/worker/Dockerfile"
+            [operator]="apps/operator/Dockerfile"
+          )
+          declare -A contexts=(
+            [frontend]="frontend"
+            [api]="."
+            [worker]="."
+            [operator]="."
+          )
+
+          for service in frontend api worker operator; do
+            repository="agentsystem-${service}"
+            image="${login_server}/${repository}:${IMAGE_TAG}"
+            build_args=()
+            if [[ "${service}" == "frontend" ]]; then
+              build_args+=(--build-arg VITE_AUTH_MODE=easy_auth)
+            fi
+            docker build --pull \
+              --file "${dockerfiles[$service]}" \
+              --tag "${image}" \
+              "${build_args[@]}" \
+              "${contexts[$service]}"
+            trivy image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "${image}"
+            syft "${image}" -o "spdx-json=sbom-${service}.spdx.json"
+            docker push "${image}"
+
+            digest="$(az acr repository show \
+              --name "${acr_name}" \
+              --image "${repository}:${IMAGE_TAG}" \
+              --query digest -o tsv)"
+            digest_ref="${login_server}/${repository}@${digest}"
+            cosign sign --yes "${digest_ref}"
+            cosign attest --yes \
+              --predicate "sbom-${service}.spdx.json" \
+              --type spdxjson \
+              "${digest_ref}"
+          done
+
+      - name: Upload image SBOMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-sboms-${{ inputs.environment }}-${{ github.sha }}
+          path: sbom-*.spdx.json
+          if-no-files-found: error
+
+      - name: Preview and deploy migration job
+        shell: bash
+        run: |
+          set -euo pipefail
+          azd env set REGISTRY_PUBLIC_NETWORK_ACCESS Disabled
+          azd env set DEPLOY_MIGRATION_JOB true
+          azd provision --preview --no-prompt
+          azd provision --no-prompt
+
+      - name: Run database migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          resource_group="rg-${AZURE_ENV_NAME}"
+          migration_job_name="$(azd env get-value DATABASE_MIGRATION_JOB_NAME)"
+          test -n "${migration_job_name}"
+
+          execution_name="$(az containerapp job start \
+            --name "${migration_job_name}" \
+            --resource-group "${resource_group}" \
+            --query name \
+            --output tsv)"
+          test -n "${execution_name}"
+
+          for _ in $(seq 1 90); do
+            status="$(az containerapp job execution show \
+              --name "${migration_job_name}" \
+              --resource-group "${resource_group}" \
+              --job-execution-name "${execution_name}" \
+              --query properties.status \
+              --output tsv)"
+            case "${status}" in
+              Succeeded)
+                exit 0
+                ;;
+              Failed|Stopped|Degraded)
+                echo "::error::Database migration ${execution_name} ended with status ${status}."
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+
+          echo "::error::Database migration ${execution_name} did not finish within 15 minutes."
+          exit 1
+
+      - name: Preview and deploy private workloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          azd env set DEPLOY_CONTAINER_APPS true
+          azd provision --preview --no-prompt
+          azd provision --no-prompt
+
+      - name: Verify deployment topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          resource_group="rg-${AZURE_ENV_NAME}"
+          frontend_name="$(azd env get-value SERVICE_FRONTEND_NAME)"
+          frontend_uri="$(azd env get-value SERVICE_FRONTEND_URI)"
+          api_name="$(azd env get-value SERVICE_API_NAME)"
+          worker_name="$(azd env get-value SERVICE_WORKER_NAME)"
+          operator_name="$(azd env get-value SERVICE_OPERATOR_NAME)"
+          acr_name="$(azd env get-value AZURE_CONTAINER_REGISTRY_NAME)"
+
+          test "$(az acr show -n "${acr_name}" --query publicNetworkAccess -o tsv)" = "Disabled"
+          test "$(az acr show -n "${acr_name}" --query adminUserEnabled -o tsv)" = "false"
+          test "$(az containerapp show -g "${resource_group}" -n "${frontend_name}" --query properties.configuration.ingress.external -o tsv)" = "true"
+          test "$(az containerapp show -g "${resource_group}" -n "${api_name}" --query properties.configuration.ingress.external -o tsv)" = "false"
+          test "$(az containerapp show -g "${resource_group}" -n "${worker_name}" --query properties.configuration.ingress -o tsv)" = ""
+          test "$(az containerapp show -g "${resource_group}" -n "${operator_name}" --query properties.configuration.ingress.external -o tsv)" = "false"
+          test "$(az containerapp auth show -g "${resource_group}" -n "${frontend_name}" --query platform.enabled -o tsv)" = "true"
+
+          curl --fail --silent --show-error "${frontend_uri}/healthz/live" >/dev/null
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' "${frontend_uri}/")"
+          test "${status}" = "302" -o "${status}" = "401"
+
+      - name: Restore private registry posture after failure
+        if: failure()
+        shell: bash
+        run: |
+          acr_name="$(azd env get-value AZURE_CONTAINER_REGISTRY_NAME 2>/dev/null || true)"
+          if [[ -n "${acr_name}" ]]; then
+            az acr update --name "${acr_name}" --public-network-enabled false --only-show-errors
+          fi

@@ -1,0 +1,17 @@
+.banner {
+  padding: var(--space-2) var(--space-5);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.offline {
+  background: var(--accent-red-dim);
+  color: var(--accent-red);
+}
+
+.degraded {
+  background: var(--accent-amber-dim);
+  color: var(--accent-amber);
+}

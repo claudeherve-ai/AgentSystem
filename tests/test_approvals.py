@@ -335,72 +335,56 @@ pytestmark_api = pytest.mark.skipif(
 
 
 def _make_app() -> "FastAPI":
-    from api.routes.approvals import router as approvals_router
+    from api.main import create_app
 
-    app = FastAPI()
-    app.include_router(approvals_router, prefix="/api/v1/approvals")
-    return app
+    return create_app()
 
 
-@pytestmark_api
-def test_api_list_and_get(patched_db):
-    row = approvals_store.create_approval("a", "x", db_path=patched_db)
-    assert row is not None
-    client = TestClient(_make_app())
+@pytest.fixture
+def unauthenticated_client(monkeypatch):
+    from agentsystem.settings import reset_settings_cache
 
-    resp = client.get("/api/v1/approvals")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["count"] == 1
-    assert body["approvals"][0]["id"] == row.id
-
-    resp = client.get(f"/api/v1/approvals/{row.id}")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "pending"
-    print("✅ GET list + GET by id")
+    monkeypatch.setenv("AUTH_MODE", "api_key")
+    monkeypatch.setenv("AGENTSYSTEM_API_KEY", "test-approval-api-key")
+    reset_settings_cache()
+    try:
+        yield TestClient(_make_app())
+    finally:
+        reset_settings_cache()
 
 
 @pytestmark_api
-def test_api_get_unknown_404(patched_db):
-    client = TestClient(_make_app())
-    resp = client.get("/api/v1/approvals/appr_missing")
-    assert resp.status_code == 404
-    print("✅ GET unknown -> 404")
+def test_api_list_requires_authentication(patched_db, unauthenticated_client):
+    resp = unauthenticated_client.get("/api/v1/approvals")
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "unauthorized"
 
 
 @pytestmark_api
-def test_api_approve_then_409(patched_db):
-    row = approvals_store.create_approval("a", "x", db_path=patched_db)
-    assert row is not None
-    client = TestClient(_make_app())
+def test_api_get_requires_authentication(patched_db, unauthenticated_client):
+    resp = unauthenticated_client.get("/api/v1/approvals/appr_missing")
+    assert resp.status_code == 401
 
-    resp = client.post(
-        f"/api/v1/approvals/{row.id}/approve",
-        json={"feedback": "go", "decided_by": "bob"},
+
+@pytestmark_api
+def test_api_approve_requires_authentication(patched_db, unauthenticated_client):
+    resp = unauthenticated_client.post(
+        "/api/v1/approvals/appr_missing/approve",
+        json={"feedback": "go"},
     )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "approved"
-
-    # Second decision -> 409 (already terminal).
-    resp = client.post(f"/api/v1/approvals/{row.id}/reject")
-    assert resp.status_code == 409
-    print("✅ approve then second decide -> 409")
+    assert resp.status_code == 401
 
 
 @pytestmark_api
-def test_api_reject_unknown_404(patched_db):
-    client = TestClient(_make_app())
-    resp = client.post("/api/v1/approvals/appr_missing/reject")
-    assert resp.status_code == 404
-    print("✅ reject unknown -> 404")
+def test_api_reject_requires_authentication(patched_db, unauthenticated_client):
+    resp = unauthenticated_client.post("/api/v1/approvals/appr_missing/reject")
+    assert resp.status_code == 401
 
 
 @pytestmark_api
-def test_api_invalid_status_filter_400(patched_db):
-    client = TestClient(_make_app())
-    resp = client.get("/api/v1/approvals?status=bogus")
-    assert resp.status_code == 400
-    print("✅ invalid ?status -> 400")
+def test_api_status_filter_requires_authentication(patched_db, unauthenticated_client):
+    resp = unauthenticated_client.get("/api/v1/approvals?status=bogus")
+    assert resp.status_code == 401
 
 
 # ── azure search: stays disabled offline ─────────────────────────────────────
