@@ -24,7 +24,7 @@ default_profile: balanced
 profiles:
   fast:
     provider: azure_openai
-    model: gpt-5.4-mini
+    model: gpt-5.6-terra
     tier: fast
     cost_per_1k_input: 0.00015
     cost_per_1k_output: 0.0006
@@ -32,7 +32,7 @@ profiles:
 
   balanced:
     provider: azure_openai
-    model: gpt-5.4
+    model: gpt-5.6-terra
     tier: balanced
     cost_per_1k_input: 0.0025
     cost_per_1k_output: 0.01

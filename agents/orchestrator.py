@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import (
     MissingModelCredentialsError,
     get_agent_configs,
+    get_azure_openai_auth_kwargs,
     get_model_config,
     get_models_config,
     get_system_config,
@@ -206,8 +207,8 @@ def create_model_client() -> OpenAIChatCompletionClient:
         return OpenAIChatCompletionClient(
             model=model_name,
             azure_endpoint=model_cfg.azure_endpoint,
-            api_key=model_cfg.azure_api_key,
             api_version=model_cfg.azure_api_version,
+            **get_azure_openai_auth_kwargs(model_cfg),
         )
     return OpenAIChatCompletionClient(
         model=model_name, api_key=model_cfg.openai_api_key,
